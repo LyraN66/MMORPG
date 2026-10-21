@@ -10,10 +10,6 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -81,8 +77,10 @@ jobs:
             --notes "Otomatik derleme · commit ${GITHUB_SHA::7}. APK'yı indirip telefona kur; yeni sürüm eskisinin üstüne kurulur." \
             --latest
 
+  # Web version on GitHub Pages: enable Pages (Source: GitHub Actions) and set repo variable PAGES_ENABLED=true.
   pages:
     needs: build
+    if: vars.PAGES_ENABLED == 'true'
     runs-on: ubuntu-latest
     continue-on-error: true
     environment:
