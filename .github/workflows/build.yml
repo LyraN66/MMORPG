@@ -1,0 +1,84 @@
+name: Build (Web + Android APK)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build web game
+        run: npm run build
+
+      - name: Upload web build for Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Sync Capacitor Android project
+        run: npx cap sync android
+
+      - name: Build APK
+        working-directory: android
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Collect APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk KemikVadisi.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KemikVadisi-apk
+          path: KemikVadisi.apk
+
+      - name: Publish "latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest KemikVadisi.apk \
+            --target "${GITHUB_SHA}" \
+            --title "Kemik Vadisi — son sürüm (#${{ github.run_number }})" \
+            --notes "Otomatik derleme · commit ${GITHUB_SHA::7}. APK'yı indirip telefona kur; yeni sürüm eskisinin üstüne kurulur." \
+            --latest
+
+  pages:
+    needs: build
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - id: deploy
+        uses: actions/deploy-pages@v4

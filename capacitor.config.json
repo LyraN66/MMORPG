@@ -1,0 +1,6 @@
+{
+  "appId": "com.lyran66.kemikvadisi",
+  "appName": "Kemik Vadisi",
+  "webDir": "dist",
+  "android": { "backgroundColor": "#0d0f16" }
+}
