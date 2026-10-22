@@ -143,6 +143,7 @@ wss.on('connection', (ws, req) => {
     if (m.t === 'save') { if (ws.uid != null && ws.char && (m.g | 0) === (ws.gen | 0)) onSave(ws, m.s, !!m.now); return; }
     if (m.t === 'hello') {
       if (ws.joined) return;
+      if (m.proto !== PROTOCOL) { reply(ws, { t: 'error', msg: 'Oyunun yeni sürümü var. "Şimdi Güncelle" ile güncelle, sonra tekrar gir.' }); return; }
       if (ws.uid == null || !ws.char) { reply(ws, { t: 'error', msg: 'Önce giriş yap.' }); return; }
       if (clients.size >= MAX_PLAYERS) { raw(ws, JSON.stringify({ t: 'error', msg: 'Dünya dolu, biraz sonra tekrar dene' })); return; }
       const info = { name: ws.uname, cls: ws.char.cls, lv: ws.char.level || 1 };
