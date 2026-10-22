@@ -33,6 +33,23 @@ export class Game {
     this.targetRing = this.makeTargetRing();
     this.moveMarker = this.makeMoveMarker();
     this.ui.bind(this);
+    this.warmup();
+  }
+
+  // Compile every effect/loot shader up front so the first hit, drop or skill doesn't stall the frame.
+  warmup() {
+    const at = new THREE.Vector3(0, -200, 0), tmp = [];
+    const add = (o) => { o.position.copy(at); this.scene.add(o); tmp.push(o); };
+    this.fx.slash(at, 0, 0xffffff, { dur: 0.01 });
+    this.fx.groundRing(at, { dur: 0.01 });
+    this.fx.telegraph(at, 1, 0.01);
+    this.fx.pillar(at, 0xffffff, { dur: 0.01 });
+    add(this.fx.lootBeam(at, 0xffffff));
+    for (const n of ['chest', 'chest_gold', 'coin_stack_large', 'bone_A', 'pumpkin_yellow', 'candle_triple', 'skull']) add(cloneProp(n, 1));
+    add(cloneWeapon('sk_staff', 1));
+    add(new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), new THREE.MeshLambertMaterial({ color: 0xff0000, emissive: 0xff0000 })));
+    this.renderer.compile(this.scene, this.camera);
+    for (const o of tmp) this.scene.remove(o);
   }
 
   // ---------- setup ----------
@@ -200,7 +217,7 @@ export class Game {
       beam = this.fx.lootBeam(pos, color);
     } else {
       color = data === 'hp' ? 0xff4a5a : 0x4aa8ff;
-      mesh = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.8 }));
+      mesh = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.8 }));
     }
     const glow = this.fx.glow(color, 1.6); glow.position.y = 0.4; mesh.add(glow);
     mesh.position.copy(pos); this.scene.add(mesh);

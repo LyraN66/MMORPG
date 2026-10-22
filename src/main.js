@@ -22,30 +22,44 @@ const $ = (s) => document.querySelector(s);
 // ---------- quality ----------
 const coarse = matchMedia('(pointer: coarse)').matches;
 let qPref = 'auto'; try { qPref = localStorage.getItem('kv-quality') || 'auto'; } catch { /* ignore */ }
-// 'auto' = full visual quality everywhere; resolution adapts to keep frame rate high.
-const quality = qPref === 'auto' ? 'high' : qPref;
+let fpsPref = 'auto'; try { fpsPref = localStorage.getItem('kv-fps') || 'auto'; } catch { /* ignore */ }
 let showPerf = false; try { showPerf = localStorage.getItem('kv-perf') === '1'; } catch { /* ignore */ }
 
-// ---------- renderer ----------
 const canvas = $('#c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: quality !== 'low', powerPreference: 'high-performance' });
-const dprMax = Math.min(devicePixelRatio, quality === 'high' ? 2 : quality === 'medium' ? 1.5 : 1);
-const dprMin = Math.min(dprMax, 1);
-let dpr = coarse ? Math.min(dprMax, 1.6) : dprMax;
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: qPref !== 'low', powerPreference: 'high-performance' });
+
+// Phones are limited by how many pixels the GPU can shade, so the mobile profile is picked from the GPU
+// and the resolution stays fixed (changing it mid-game caused hitches).
+const gl = renderer.getContext();
+const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+const GPU = String(dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+function gpuTier(name) {
+  const n = name.toLowerCase();
+  const adreno = +(n.match(/adreno[^\d]*(\d{3})/) || [])[1] || 0;
+  const mali = n.match(/mali-g(\d+)/); const maliN = mali ? +mali[1] : 0;
+  if (/apple|immortalis/.test(n) || adreno >= 730) return 3;
+  if (adreno >= 640 || maliN >= 68 || /xclipse/.test(n)) return 2;
+  return 1;
+}
+const tier = coarse ? gpuTier(GPU) : 3;
+const quality = qPref === 'auto' ? (coarse ? 'medium' : 'high') : qPref;
+const dprCap = { high: 2, medium: 1.5, low: 1 }[quality];
+const dpr = Math.min(devicePixelRatio, qPref === 'auto' && coarse ? [0, 1.15, 1.35, 1.6][tier] : dprCap);
 renderer.setPixelRatio(dpr);
 renderer.info.autoReset = false;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 renderer.shadowMap.enabled = quality !== 'low';
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = quality === 'high' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x2d2f36, 0.019);
 const camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 0.3, 140);
 
 let composer = null;
-if (quality === 'high') {
+// Bloom post-processing only on desktop-class GPUs; on phones glows come from additive sprites instead.
+if (quality === 'high' && !coarse) {
   // Multisampled target keeps edges smooth when post-processing is on.
   const rt = new THREE.WebGLRenderTarget(innerWidth * dpr, innerHeight * dpr, { type: THREE.HalfFloatType, samples: 4 });
   composer = new EffectComposer(renderer, rt);
@@ -154,22 +168,21 @@ function startGame(save) {
 // ---------- loop ----------
 const clock = new THREE.Clock();
 let fpsT = 0, frames = 0, good = 0;
-// Adaptive resolution: drop render scale when the frame rate sags, raise it back when there is headroom.
-function adaptResolution(fps) {
-  if (!game) return;
-  let next = dpr;
-  if (fps < 50) { next = Math.max(dprMin, dpr - (fps < 35 ? 0.3 : 0.15)); good = 0; }
-  else if (fps > 57) { if (++good >= 3) { next = Math.min(dprMax, dpr + 0.1); good = 0; } }
-  else good = 0;
-  if (Math.abs(next - dpr) > 0.01) {
-    dpr = next; renderer.setPixelRatio(dpr); composer?.setPixelRatio(dpr); resize();
-  }
+// Frame pacing: a steady 30 fps feels smoother than a frame rate jumping between 20 and 50.
+let cap = fpsPref === '30' ? 30 : 0, lastFrame = 0, calib = fpsPref === 'auto' && coarse ? { t: 0, n: 0 } : null;
+function calibrate(raw) {
+  if (!calib || !game) return;
+  calib.t += raw; calib.n++;
+  if (calib.t > 6) { if (calib.n / calib.t < 48) cap = 30; calib = null; }
 }
-function loop() {
+function loop(now) {
   requestAnimationFrame(loop);
+  if (cap && now - lastFrame < 1000 / cap - 4) return;
+  lastFrame = now;
   const raw = clock.getDelta();
   const dt = Math.min(raw, 0.1);
   renderer.info.reset();
+  calibrate(raw);
   input.update();
   if (game) game.update(dt);
   else if (world) {
@@ -183,8 +196,8 @@ function loop() {
   if (fpsT > 1.5) {
     const fps = frames / fpsT;
     const el = $('#fps'); el.classList.toggle('show', showPerf);
-    el.textContent = showPerf ? `${Math.round(fps)} fps · ${dpr.toFixed(2)}x · ${renderer.info.render.calls} çizim · ${Math.round(renderer.info.render.triangles / 1000)}k üçgen` : Math.round(fps) + ' fps';
-    adaptResolution(fps); frames = 0; fpsT = 0;
+    el.textContent = showPerf ? `${Math.round(fps)} fps${cap ? ' (30 kilit)' : ''} · ${dpr.toFixed(2)}x · ${quality} · ${renderer.info.render.calls} çizim · ${GPU.replace(/ANGLE \(|\)$/g, '').slice(0, 40)}` : Math.round(fps) + ' fps';
+    frames = 0; fpsT = 0;
   }
 }
 
@@ -203,11 +216,11 @@ function loop() {
   world = new World(scene, quality);
   resize();
   setupPreview();
-  window.__kv = { scene, camera, input, renderer, setPerf: (v) => { showPerf = v; }, get world() { return world; }, get game() { return game; }, THREE };
+  window.__kv = { scene, camera, input, renderer, setPerf: (v) => { showPerf = v; }, setFps: (v) => { fpsPref = v; cap = v === '30' ? 30 : 0; calib = v === 'auto' && coarse ? { t: 0, n: 0 } : null; }, get world() { return world; }, get game() { return game; }, THREE };
   // warm up shaders
   renderer.compile(scene, camera);
   $('#loadbar i').style.width = '100%';
-  loop();
+  requestAnimationFrame(loop);
   setTimeout(() => { $('#loading').classList.add('done'); if (!game) showTitle(); }, 250);
   if (new URLSearchParams(location.search).has('autostart')) {
     const s = loadSave() || newSave(new URLSearchParams(location.search).get('cls') || 'knight', 'Test');

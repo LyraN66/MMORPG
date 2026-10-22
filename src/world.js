@@ -140,7 +140,7 @@ export class World {
     }
     geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     geo.computeVertexNormals();
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
     // subtle procedural detail noise in fragment shader
     mat.onBeforeCompile = (sh) => {
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWp;')

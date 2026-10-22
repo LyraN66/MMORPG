@@ -577,7 +577,14 @@ export class UI {
     $('#snd').textContent = soundOn() ? '🔊 Ses: Açık' : '🔇 Ses: Kapalı';
     $('#snd').onclick = () => { setSound(!soundOn()); this.openMenu(); };
     const q = localStorage.getItem('kv-quality') || 'auto';
-    $('#qual').textContent = '🎨 Grafik: ' + { auto: 'Yüksek + otomatik çözünürlük', high: 'Yüksek', medium: 'Orta', low: 'Düşük' }[q];
+    $('#qual').textContent = '🎨 Grafik: ' + { auto: 'Otomatik (cihaza göre)', high: 'Yüksek', medium: 'Orta', low: 'Düşük' }[q];
+    let fp = 'auto'; try { fp = localStorage.getItem('kv-fps') || 'auto'; } catch { /* ignore */ }
+    $('#fpsbtn').textContent = '⏱️ FPS: ' + { auto: 'Otomatik', 60: '60 (en yüksek)', 30: '30 (sabit, akıcı)' }[fp];
+    $('#fpsbtn').onclick = () => {
+      const order = ['auto', '60', '30']; const n = order[(order.indexOf(fp) + 1) % 3];
+      try { localStorage.setItem('kv-fps', n); } catch { /* ignore */ }
+      window.__kv?.setFps(n); this.openMenu();
+    };
     $('#qual').onclick = () => {
       const order = ['auto', 'high', 'medium', 'low']; const n = order[(order.indexOf(q) + 1) % 4];
       try { localStorage.setItem('kv-quality', n); } catch { /* ignore */ }

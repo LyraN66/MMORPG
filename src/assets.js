@@ -23,13 +23,22 @@ export async function loadAll(onProgress) {
   for (const [store, key] of [[A.props, 'props'], [A.weapons, 'weapons']]) {
     for (const n of A.gltf[key].scene.children) store[n.name] = n;
   }
-  // Materials: KayKit uses a single gradient atlas; make them look good with our lighting.
+  // Materials: KayKit models are matte gradient-atlas art, so a diffuse (Lambert) material looks the same
+  // as PBR but is far cheaper per pixel on phone GPUs.
+  const cache = new Map();
+  const toLambert = (src) => {
+    if (!src || !src.isMeshStandardMaterial) return src;
+    if (cache.has(src)) return cache.get(src);
+    if (src.map) { src.map.colorSpace = THREE.SRGBColorSpace; src.map.anisotropy = 4; }
+    const l = new THREE.MeshLambertMaterial({ map: src.map, color: src.color, emissive: src.emissive, emissiveMap: src.emissiveMap,
+      transparent: src.transparent, opacity: src.opacity, alphaTest: src.alphaTest, side: src.side, vertexColors: src.vertexColors });
+    l.name = src.name; cache.set(src, l);
+    return l;
+  };
   const fix = (o) => o.traverse((m) => {
     if (m.isMesh) {
       m.castShadow = true; m.receiveShadow = true;
-      const mat = m.material;
-      if (mat && mat.map) { mat.map.colorSpace = THREE.SRGBColorSpace; mat.map.anisotropy = 4; }
-      if (mat) { mat.roughness = 0.85; mat.metalness = 0; }
+      m.material = Array.isArray(m.material) ? m.material.map(toLambert) : toLambert(m.material);
     }
   });
   Object.values(A.gltf).forEach((g) => fix(g.scene));
