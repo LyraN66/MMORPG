@@ -62,7 +62,7 @@ wss.on('connection', (ws) => {
     if (m.t === 'ping') { raw(ws, JSON.stringify({ t: 'pong', ts: m.ts })); return; }
     if (m.t === 'hello') {
       if (ws.joined) return;
-      if (m.proto !== PROTOCOL) { raw(ws, JSON.stringify({ t: 'error', msg: 'Oyunun yeni sürümü var. Uygulamayı kapatıp yeniden aç ya da en son APK\'yı kur — güncellemeden sonra girebilirsin.' })); return; }
+      if (m.proto !== PROTOCOL) { raw(ws, JSON.stringify({ t: 'error', msg: m.proto < PROTOCOL ? 'Oyunun yeni sürümü var. Aşağıdaki "Şimdi Güncelle" ile güncelle, sonra tekrar gir.' : 'Sunucu güncelleniyor, birkaç dakika sonra tekrar dene.' })); return; }
       if (clients.size >= MAX_PLAYERS) { raw(ws, JSON.stringify({ t: 'error', msg: 'Dünya dolu, biraz sonra tekrar dene' })); return; }
       const info = { name: String(m.info?.name || 'Oyuncu').slice(0, 14), cls: m.info?.cls === 'mage' ? 'mage' : 'knight', lv: +m.info?.lv || 1 };
       ws.map = mapById(m.map).id;

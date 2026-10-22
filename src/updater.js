@@ -23,23 +23,37 @@ async function latestInfo(timeout = 6000) {
   } finally { clearTimeout(t); }
 }
 
-// Returns { apk } if a new APK is required, otherwise null. Restarts the app when a game update applies.
-export async function checkForUpdate(onStatus) {
+// What is available? { kind: 'apk' | 'web', info } or null. Never applies anything.
+export async function peekUpdate() {
   if (!isNative()) return null;
-  let info;
-  try { info = await latestInfo(); } catch { return null; }
+  let info; try { info = await latestInfo(8000); } catch { return null; }
   if (!info) return null;
-  if (info.native > NATIVE_VERSION) return { apk: info.apk, web: info.web };
-  if (!(info.web > WEB_VERSION) || !info.zip) return null;
+  if (info.native > NATIVE_VERSION) return { kind: 'apk', info };
+  if (info.web > WEB_VERSION && info.zip) return { kind: 'web', info };
+  return null;
+}
+
+// Download a game update and restart into it. Returns false if it failed.
+export async function applyUpdate(info, onStatus) {
   onStatus?.(`Güncelleme indiriliyor (v${info.web})…`, 0);
   const sub = await CapacitorUpdater.addListener('download', (e) => onStatus?.(`Güncelleme indiriliyor (v${info.web})… %${Math.round(e.percent || 0)}`, (e.percent || 0) / 100));
   try {
     const bundle = await CapacitorUpdater.download({ url: info.zip, version: String(info.web) });
     onStatus?.('Güncelleme kuruluyor…', 1);
     await CapacitorUpdater.set({ id: bundle.id }); // reloads the app with the new build
+    return true;
   } catch (e) {
-    onStatus?.('Güncelleme indirilemedi, mevcut sürümle devam ediliyor…', 1);
+    onStatus?.('Güncelleme indirilemedi.', 1);
     console.warn('update failed', e);
+    return false;
   } finally { sub?.remove?.(); }
+}
+
+// On launch: returns { apk } if a new APK is required, otherwise null. Restarts the app when a game update applies.
+export async function checkForUpdate(onStatus) {
+  const u = await peekUpdate();
+  if (!u) return null;
+  if (u.kind === 'apk') return { apk: u.info.apk, web: u.info.web };
+  await applyUpdate(u.info, onStatus);
   return null;
 }

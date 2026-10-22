@@ -2,7 +2,7 @@ import '@fontsource/cinzel/600.css';
 import '@fontsource/cinzel/800.css';
 import '@fontsource/cinzel-decorative/900.css';
 import './style.css';
-import { markReady, checkForUpdate } from './updater.js';
+import { markReady, checkForUpdate, peekUpdate, applyUpdate, isNative } from './updater.js';
 import { WEB_VERSION } from './version.js';
 import { PROTOCOL } from '../server/shared/version.js';
 markReady();
@@ -113,6 +113,29 @@ function titleCamera(dt) {
   camera.lookAt(c.x, 1.5, c.z - 3.2);
 }
 
+// ---------- in-app update ----------
+// Looks for a newer build and installs it right away (game files) or opens the APK download (app shell).
+async function runUpdate(say) {
+  say('Yeni sürüm aranıyor…');
+  const u = await peekUpdate();
+  if (!u) { say(isNative() ? 'Oyunun en güncel sürümü sende. Sunucu güncelleniyor olabilir, birkaç dakika sonra tekrar dene.' : 'Tarayıcıda sayfayı yenilemen yeterli.'); return; }
+  if (u.kind === 'apk') { say('Yeni APK indiriliyor… İnince dokunup kur.'); window.location.href = u.info.apk; return; }
+  const ok = await applyUpdate(u.info, (t) => say(t));
+  if (!ok) say('Güncelleme indirilemedi. İnternet bağlantını kontrol edip tekrar dene.');
+}
+// Quietly checks while on the title screen (and when the app comes back from the background).
+let updT = 0;
+async function titleUpdateCheck() {
+  if (game || !isNative() || Date.now() - updT < 60000) return;
+  updT = Date.now();
+  const u = await peekUpdate(); const b = $('#t-update');
+  if (!u || game) { b.classList.add('hidden'); return; }
+  b.classList.remove('hidden');
+  b.innerHTML = u.kind === 'apk' ? '⬇️ Yeni sürüm var — APK\'yı indir' : `🔄 Yeni sürüm hazır — Güncelle <small>Sürüm 0.1.${u.info.web} · birkaç saniye sürer</small>`;
+  b.onclick = () => { b.disabled = true; runUpdate((t) => { b.innerHTML = t; b.disabled = false; }); };
+}
+addEventListener('visibilitychange', () => { if (!document.hidden) titleUpdateCheck(); });
+
 // ---------- menus ----------
 let chosen = 'knight';
 let needApk = null;
@@ -125,13 +148,14 @@ function showTitle() {
   if (save) $('#t-continue').innerHTML = `Tek Başına Oyna <small>${save.name} · ${CLASSES[save.cls].name} · Sv.${save.level}</small>`;
   if (save) $('#t-coop').innerHTML = `🌍 Çevrimiçi Oyna <small>Herkesle aynı vadide</small>`;
   $('#t-new').textContent = save ? 'Yeni Karakter' : 'Oyuna Başla';
-  $('.credit').textContent = `Grafikler: KayKit (CC0) · Sürüm 0.1.${WEB_VERSION}`;
+  $('.credit').textContent = `Grafikler: KayKit & Quaternius (CC0) · Sürüm 0.1.${WEB_VERSION}`;
   $('#t-apk').classList.toggle('hidden', !needApk);
   if (needApk) $('#t-apk').onclick = () => { window.location.href = needApk.apk; };
   $('#t-continue').onclick = () => { initAudio(); startGame(save); };
   $('#t-coop').classList.toggle('hidden', !save);
   $('#t-coop').onclick = () => { initAudio(); openOnline(save); };
   $('#t-new').onclick = () => { initAudio(); $('#title').classList.add('hidden'); showClassSelect(); };
+  titleUpdateCheck();
 }
 function showClassSelect() {
   const box = $('#classes'); box.innerHTML = '';
@@ -173,7 +197,7 @@ function openOnline(save) {
     const custom = $('#l-server').value.trim();
     setServerUrl(custom && custom !== DEFAULT_SERVER ? custom : '');
     net = new Net();
-    retry.classList.add('hidden');
+    retry.classList.add('hidden'); $('#l-update').classList.add('hidden');
     st.className = 'lstatus'; st.textContent = 'Sunucuya bağlanılıyor…';
     const slow = setTimeout(() => { st.textContent = 'Sunucu uyanıyor… (ücretsiz sunucu bir süre boş kalınca uyur, 1 dakika kadar sürebilir)'; }, 4000);
     try {
@@ -190,6 +214,10 @@ function openOnline(save) {
       clearTimeout(slow); net.close();
       if (cancelled) return;
       st.className = 'lstatus err'; st.textContent = e.message; retry.classList.remove('hidden');
+      if (/sürüm|güncel/i.test(e.message)) {
+        const ub = $('#l-update'); ub.classList.remove('hidden'); ub.disabled = false;
+        ub.onclick = () => { ub.disabled = true; runUpdate((t) => { st.className = 'lstatus'; st.textContent = t; ub.disabled = false; }); };
+      }
     }
   };
   retry.onclick = go;
