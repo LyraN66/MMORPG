@@ -556,8 +556,9 @@ export class Enemy extends Unit {
     if (!this.isBoss && this.state !== 'cast' && Math.random() < 0.35) this.anim.once('Hit_A', { timeScale: 1.5, lockFor: 0.25 });
   }
 
+  clearFlash() { this.flash = 0; for (const m of this.ch.materials) m.emissive?.setRGB(0, 0, 0); }
   die(killer) {
-    this.alive = false; this.state = 'dead';
+    this.alive = false; this.state = 'dead'; this.clearFlash();
     this.anim.unlock(); this.anim.once(Math.random() < 0.7 ? 'Death_C_Skeletons' : 'Death_A', { hold: true, timeScale: 1.1 });
     this.root.remove(this.hitbox);
     if (this.aura) this.aura.visible = false;
@@ -593,7 +594,7 @@ export class Enemy extends Unit {
   }
   dieRemote() {
     if (!this.alive) return;
-    this.alive = false; this.state = 'dead';
+    this.alive = false; this.state = 'dead'; this.clearFlash();
     this.anim.unlock(); this.anim.once(Math.random() < 0.7 ? 'Death_C_Skeletons' : 'Death_A', { hold: true, timeScale: 1.1 });
     this.root.remove(this.hitbox);
     if (this.aura) this.aura.visible = false;
