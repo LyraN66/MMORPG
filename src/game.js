@@ -37,6 +37,7 @@ export class Game {
     this.quests = new Quests(this);
     this.targetRing = this.makeTargetRing();
     this.moveMarker = this.makeMoveMarker();
+    this.guide = this.makeGuide();
     this.ui.bind(this);
     this.warmup();
   }
@@ -106,6 +107,46 @@ export class Game {
   makeTargetRing() {
     const m = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 40), new THREE.MeshBasicMaterial({ color: 0xff4a4a, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide }));
     m.rotation.x = -Math.PI / 2; m.visible = false; this.scene.add(m); return m;
+  }
+  // Golden chevron around the player that points at the nearest quest objective.
+  makeGuide() {
+    const sh = new THREE.Shape();
+    sh.moveTo(0, 0.75); sh.lineTo(0.55, -0.15); sh.lineTo(0.2, -0.15); sh.lineTo(0.2, -0.6); sh.lineTo(-0.2, -0.6); sh.lineTo(-0.2, -0.15); sh.lineTo(-0.55, -0.15); sh.closePath();
+    const geo = new THREE.ShapeGeometry(sh); geo.rotateX(-Math.PI / 2); geo.rotateY(Math.PI);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffc21a, transparent: true, opacity: 0.95, depthWrite: false, depthTest: false, side: THREE.DoubleSide, fog: false, toneMapped: false });
+    const m = new THREE.Mesh(geo, mat); m.renderOrder = 11; m.scale.setScalar(2.1);
+    // dark outline underneath so it reads on any ground colour
+    const ol = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x1a0d00, transparent: true, opacity: 0.6, depthWrite: false, depthTest: false, side: THREE.DoubleSide, fog: false }));
+    ol.scale.setScalar(1.25); ol.position.set(0, -0.01, -0.05); ol.renderOrder = 10; m.add(ol); m.visible = false; this.scene.add(m);
+    const lbl = document.createElement('div'); lbl.className = 'guidelbl'; lbl.style.display = 'none';
+    document.getElementById('overlay').appendChild(lbl);
+    return { m, lbl, t: 0, pick: null, pickT: 0 };
+  }
+  updateGuide(dt) {
+    const G = this.guide, p = this.player;
+    G.t += dt; G.pickT -= dt;
+    if (G.pickT <= 0) {
+      G.pickT = 0.5; G.pick = null;
+      let bd = Infinity;
+      for (const t of this.quests.targets()) {
+        const d = Math.max(0, Math.hypot(t.x - p.pos.x, t.z - p.pos.z) - (t.r || 0));
+        if (d < bd) { bd = d; G.pick = t; }
+      }
+    }
+    const t = G.pick;
+    const dist = t ? Math.max(0, Math.hypot(t.x - p.pos.x, t.z - p.pos.z) - (t.r || 0)) : 0;
+    const show = t && !p.dead && dist > 3;
+    G.m.visible = !!show;
+    if (!show) { if (G.lbl.style.display !== 'none') G.lbl.style.display = 'none'; return; }
+    const a = Math.atan2(t.x - p.pos.x, t.z - p.pos.z);
+    const R = 3.2 + Math.sin(G.t * 4) * 0.25;
+    G.m.position.set(p.pos.x + Math.sin(a) * R, p.pos.y + 0.12, p.pos.z + Math.cos(a) * R);
+    G.m.rotation.y = a;
+    G.m.material.opacity = 0.8 + Math.sin(G.t * 4) * 0.15;
+    TMP.set(p.pos.x + Math.sin(a) * (R + 2.6), p.pos.y + 0.3, p.pos.z + Math.cos(a) * (R + 2.6)).project(this.camera);
+    G.lbl.style.display = '';
+    G.lbl.textContent = `${Math.round(dist)} m`;
+    G.lbl.style.transform = `translate(${((TMP.x * 0.5 + 0.5) * innerWidth) | 0}px, ${((-TMP.y * 0.5 + 0.5) * innerHeight) | 0}px) translate(-50%, -50%)`;
   }
   makeMoveMarker() {
     const m = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.45, 24), new THREE.MeshBasicMaterial({ color: 0x9fe0ff, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
@@ -441,6 +482,7 @@ export class Game {
       this.targetRing.scale.setScalar(t.radius * 1.7 + Math.sin(this.time * 6) * 0.05);
       this.targetRing.material.color.set(t.isBoss ? 0xff2a2a : 0xff6a4a);
     } else this.targetRing.visible = false;
+    this.updateGuide(rawDt);
     if (this.moveMarker.visible) {
       const m = this.moveMarker; m.userData.t += dt; m.scale.setScalar(1 + m.userData.t * 2); m.material.opacity = 1 - m.userData.t * 1.6;
       if (m.userData.t > 0.6 || !p.moveTarget) m.visible = false;

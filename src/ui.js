@@ -267,7 +267,7 @@ export class UI {
     setTimeout(() => el.classList.add('out'), 2200); setTimeout(() => el.remove(), 2700);
   }
   announce(text, kind = '') {
-    const box = $('#announce'); const el = h('div', 'ann ' + kind, text);
+    const box = $('#announce'); const el = h('div', 'ann' + (kind ? ' ann-' + kind : ''), text);
     box.appendChild(el);
     if (kind === 'unique') sfx.warn();
     setTimeout(() => el.classList.add('out'), 4200); setTimeout(() => el.remove(), 5000);
