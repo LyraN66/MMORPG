@@ -23,7 +23,7 @@ const server = http.createServer((req, res) => {
     return;
   }
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('Kemik Vadisi sunucusu çalışıyor. Sürüm ' + VERSION + ' · Çevrimiçi: ' + clients.size);
+  res.end('Kemik Vadisi sunucusu çalışıyor. Sürüm ' + VERSION + ' · Protokol ' + PROTOCOL + ' · Çevrimiçi: ' + clients.size);
 });
 
 const raw = (ws, s) => { if (ws.readyState === 1) ws.send(s); };
