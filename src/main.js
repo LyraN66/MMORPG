@@ -349,6 +349,9 @@ function loop(now) {
   }
 }
 
+// Web version: register the (pass-through) service worker so phones can install it as an app.
+if (!isNative() && 'serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+
 // ---------- boot ----------
 (async function boot() {
   document.title = GAME_NAME;
