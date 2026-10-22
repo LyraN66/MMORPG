@@ -33,7 +33,10 @@ class PgStore {
   constructor(url) { this.url = url; }
   async init() {
     const { default: pg } = await import('pg');
-    this.pool = new pg.Pool({ connectionString: this.url, ssl: /localhost|127\.0\.0\.1/.test(this.url) ? false : { rejectUnauthorized: false }, max: 5 });
+    // SSL is configured here (verified certificate) instead of through ?sslmode= in the URL, which makes pg print a warning.
+    const u = new URL(this.url); for (const k of ['sslmode', 'channel_binding', 'uselibpqcompat']) u.searchParams.delete(k);
+    const local = /^(localhost|127\.0\.0\.1)$/.test(u.hostname);
+    this.pool = new pg.Pool({ connectionString: u.toString(), ssl: local ? false : { rejectUnauthorized: true }, max: 5 });
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, key TEXT UNIQUE NOT NULL, name TEXT NOT NULL, hash TEXT NOT NULL, created TIMESTAMPTZ DEFAULT now());
       CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, uid INT NOT NULL REFERENCES users(id) ON DELETE CASCADE, exp TIMESTAMPTZ NOT NULL);
