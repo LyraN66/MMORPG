@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { xpToNext, RARITY, itemStat, PLUS_CHANCE, plusCost, sellPrice, SHOP, MAX_LEVEL , SLOTS, SLOT, STAT_NAMES, itemScore, potionPrice, ELIXIRS, elixirPrice, chestPrice, bagPrice, travelPrice, makeItem, randomSlot , MOUNTS, ACHIEVEMENTS } from './data.js';
+import { xpToNext, RARITY, itemStat, PLUS_CHANCE, plusCost, sellPrice, SHOP, MAX_LEVEL , SLOTS, SLOT, STAT_NAMES, itemScore, potionPrice, ELIXIRS, elixirPrice, chestPrice, bagPrice, travelPrice, makeItem, randomSlot , MOUNTS, ACHIEVEMENTS , scrollPrice } from './data.js';
 import { sfx, soundOn, setSound } from './audio.js';
 import { saveGame } from './save.js';
 import { BOUNDS, roadX, CAMP_POS, CRYPT_POS, heightAt } from './world.js';
@@ -39,6 +39,7 @@ export class UI {
     $('#pot-hp').onpointerdown = (e) => { e.preventDefault(); game.player.usePotion('hp'); };
     $('#pot-mp').onpointerdown = (e) => { e.preventDefault(); game.player.usePotion('mp'); };
     $('#mount-btn').onpointerdown = (e) => { e.preventDefault(); game.toggleMount(); };
+    $('#recall-btn').onpointerdown = (e) => { e.preventDefault(); game.startRecall(); };
     $('#btn-ach').onclick = () => this.openAchievements();
     $('#btn-inv').onclick = () => this.openInventory();
     $('#sellall').onclick = () => this.sellAll();
@@ -143,9 +144,9 @@ export class UI {
       if (pl.w !== w) { pl.bar.style.width = w + '%'; pl.w = w; }
     }
     let near = null;
-    const qm = g.quests.npcMark();
     for (const np of this.npcPlates) {
       const { n, el } = np;
+      const qm = n.role === 'quest' ? g.quests.npcMark(n.outpost?.id === 'camp') : '';
       if (n.role === 'quest' && np.m !== qm) { np.m = qm; np.mark.textContent = qm; np.mark.className = 'mark ' + (qm === '?' ? 'ready' : qm === '!' ? 'new' : 'wait'); }
       const sc = dist2d(n.pos, p.pos) < 25 && this.project(n.pos, 2.9);
       if (!sc) { el.style.display = 'none'; continue; }
@@ -192,6 +193,8 @@ export class UI {
     if (p.buffT > 0) $('#buff span').textContent = Math.ceil(p.buffT);
     $('#pot-hp b').textContent = s.potions.hp || 0;
     $('#pot-mp b').textContent = s.potions.mp || 0;
+    const sc = s.potions.scroll || 0;
+    if (this.scrollN !== sc) { this.scrollN = sc; $('#recall-btn').classList.toggle('hidden', !sc); $('#recall-btn b').textContent = sc; }
     const hasMount = !!s.mounts?.length;
     if (this.mountShown !== hasMount) { this.mountShown = hasMount; $('#mount-btn').classList.toggle('hidden', !hasMount); }
     if (this.mountOn !== !!p.mount) { this.mountOn = !!p.mount; $('#mount-btn').classList.toggle('on', this.mountOn); }
@@ -271,7 +274,8 @@ export class UI {
     const qm = g.quests.npcMark();
     for (const o of OUTPOSTS) if (o.id !== 'camp') { c.font = `${12 * D}px sans-serif`; c.fillText('⛺', tx(o.x), tz(o.z)); }
     if (ACTIVE_MAP.portal) { c.font = `${12 * D}px sans-serif`; c.fillText('🌀', tx(ACTIVE_MAP.portal.x), tz(ACTIVE_MAP.portal.z)); }
-    if (qm === '!' || qm === '?') { c.font = `bold ${14 * D}px sans-serif`; c.fillStyle = '#ffd23a'; for (const gv of GIVERS) c.fillText(qm, tx(gv.pos[0]), tz(gv.pos[1]) - 8 * D); }
+    c.font = `bold ${14 * D}px sans-serif`; c.fillStyle = '#ffd23a';
+    for (const gv of GIVERS) { const mk = g.quests.npcMark(gv.camp); if (mk === '!' || mk === '?') c.fillText(mk, tx(gv.pos[0]), tz(gv.pos[1]) - 8 * D); }
     if (nearest && nd * scale > W / 2 - 12) {
       const a = Math.atan2(nearest.z - p.pos.z, nearest.x - p.pos.x), r = W / 2 - 10 * D;
       c.save(); c.translate(W / 2 + Math.cos(a) * r, H / 2 + Math.sin(a) * r); c.rotate(a);
@@ -423,6 +427,7 @@ export class UI {
   openNpc(n) {
     if (dist2d(n.pos, this.g.player.pos) > 6) { this.g.player.moveTarget = n.pos.clone().add(new THREE.Vector3(0, 0, 2.5)); return; }
     if (n.role === 'portal') { this.openPortal(); return; }
+    this.curNpc = n;
     const title = { smith: '⚒️ ', merchant: '💰 ', quest: '📜 ' }[n.role] + n.name;
     $({ smith: '#smith', merchant: '#shop', quest: '#quest' }[n.role] + ' .ph h3').textContent = title;
     if (n.role === 'smith') this.openSmith(); else if (n.role === 'quest') this.openQuests(); else this.openShop();
@@ -454,7 +459,7 @@ export class UI {
     const el = $('#qtrack');
     if (!list.length) {
       const m = qs.npcMark();
-      el.innerHTML = m === '!' ? `<div class="qt"><b>📜 Yeni görev</b><span>Bir Gözcü ile konuş</span></div>` : '';
+      el.innerHTML = qs.newMain ? `<div class="qt"><b>📜 Yeni görev</b><span>Kamptaki ${GIVER.name} ile konuş</span></div>` : m === '!' ? `<div class="qt"><b>🎯 Sözleşme</b><span>Bir Gözcü'den av sözleşmesi al</span></div>` : '';
       return;
     }
     el.innerHTML = list.map(({ q, prog, done, kind }) => `<div class="qt ${done ? 'done' : ''}"><b>${kind === 'bounty' ? '🎯' : '📜'} ${q.name}</b>
@@ -475,6 +480,7 @@ export class UI {
     if (r.potions?.hp) parts.push(`🧪 ×${r.potions.hp}`);
     if (r.potions?.mp) parts.push(`💧 ×${r.potions.mp}`);
     if (r.item != null) parts.push(`<span style="color:${RARITY[r.item].color}">🎁 ${RARITY[r.item].name} eşya</span>`);
+    if (r.mount) parts.push(`<span style="color:#7dff9a">🐕 Binek: ${MOUNTS.find((m) => m.id === r.mount)?.name}</span>`);
     return parts.join(' · ');
   }
 
@@ -488,6 +494,9 @@ export class UI {
         <div class="qobj">${objectiveText(m)}: <b>${Math.min(s.quests.prog, m.count)}/${m.count}</b></div>
         <div class="qrew">${this.rewardText(m)}</div>
         ${done ? '<button class="btn" data-a="turn-main">Teslim Et</button>' : '<div class="qwait">Devam ediyor…</div>'}</div>`;
+    } else if (nx && this.curNpc?.outpost && this.curNpc.outpost.id !== 'camp') {
+      html += `<div class="qcard locked"><h4>📜 Hikâye görevleri</h4><p>Yeni hikâye görevlerini kamptaki <b>${GIVER.name}</b> veriyor. Biten görevleri bana da teslim edebilirsin.</p>
+        <button class="btn ghost" data-a="tocamp">⚡ Kampa ışınlan (${travelPrice(s.level)} 🪙)</button></div>`;
     } else if (nx) {
       const ok = nx.lv <= s.level;
       html += `<div class="qcard ${ok ? '' : 'locked'}"><h4>📜 ${nx.name} <small>Sv.${nx.lv}</small></h4><p>${ok ? nx.story : `Bu iş için henüz hazır değilsin. ${nx.lv}. seviyeye ulaşınca gel.`}</p>
@@ -517,6 +526,7 @@ export class UI {
       else if (a === 'abandon') qs.abandonBounty();
       else if (a === 'turn-main') qs.turnIn('main');
       else if (a === 'turn-bounty') qs.turnIn('bounty');
+      else if (a === 'tocamp') { this.closeModal(); this.g.fastTravel(OUTPOSTS[0]); return; }
       this.openQuests();
     }));
     this.openModal('#quest');
@@ -653,7 +663,8 @@ export class UI {
       c.strokeStyle = 'rgba(159,224,255,.5)'; c.lineWidth = 1.5 * D; c.setLineDash([2 * D, 3 * D]); c.beginPath(); c.arc(X(o.x), Z(o.z), o.r * k, 0, 6.28); c.stroke(); c.setLineDash([]);
     }
     if (ACTIVE_MAP.portal) { const P = ACTIVE_MAP.portal; c.font = `${18 * D}px sans-serif`; c.fillText('🌀', X(P.x), Z(P.z)); c.font = `bold ${10 * D}px sans-serif`; c.fillStyle = '#000'; c.fillText('Işınlanma Kapısı', X(P.x) + D, Z(P.z) + 16 * D + D); c.fillStyle = '#c9bfff'; c.fillText('Işınlanma Kapısı', X(P.x), Z(P.z) + 16 * D); }
-    if (qm === '!' || qm === '?') { c.font = `900 ${20 * D}px sans-serif`; c.fillStyle = '#ffd23a'; for (const gv of GIVERS) c.fillText(qm, X(gv.pos[0]) + 9 * D, Z(gv.pos[1]) - 10 * D); }
+    c.font = `900 ${20 * D}px sans-serif`; c.fillStyle = '#ffd23a';
+    for (const gv of GIVERS) { const mk = g.quests.npcMark(gv.camp); if (mk === '!' || mk === '?') c.fillText(mk, X(gv.pos[0]) + 9 * D, Z(gv.pos[1]) - 10 * D); }
     c.save(); c.translate(X(p.pos.x), Z(p.pos.z)); c.rotate(-p.yaw + Math.PI);
     const s = 8 * D; c.fillStyle = '#fff'; c.strokeStyle = '#000'; c.lineWidth = 2 * D;
     c.beginPath(); c.moveTo(0, -s * 1.3); c.lineTo(s, s); c.lineTo(0, s * 0.4); c.lineTo(-s, s); c.closePath(); c.fill(); c.stroke(); c.restore();
@@ -677,9 +688,12 @@ export class UI {
   }
 
   openShop(tab = this.shopTab || 'pots') {
+    // The camp has the full market; outpost merchants only sell potions and return scrolls.
+    const camp = !this.curNpc?.outpost || this.curNpc.outpost.id === 'camp';
+    if (!camp) tab = 'pots';
     this.shopTab = tab;
     const s = this.g.save, p = this.g.player, lv = s.level, box = $('#shoplist'); box.innerHTML = '';
-    const tabs = h('div', 'shoptabs', [['pots', '🧪 İksir'], ['elix', '✨ Güç'], ['chest', '🎁 Sandık'], ['bag', '🎒 Çanta'], ['mount', '🐎 Binek']]
+    const tabs = h('div', 'shoptabs', (camp ? [['pots', '🧪 İksir'], ['elix', '✨ Güç'], ['chest', '🎁 Sandık'], ['bag', '🎒 Çanta'], ['mount', '🐎 Binek']] : [['pots', '🧪 İksir']])
       .map(([id, n]) => `<button class="tab${id === tab ? ' on' : ''}" data-t="${id}">${n}</button>`).join(''));
     tabs.querySelectorAll('button').forEach((b) => (b.onclick = () => { sfx.ui(); this.openShop(b.dataset.t); }));
     box.appendChild(tabs);
@@ -692,6 +706,10 @@ export class UI {
         const r = row(it.icon, it.name, `${it.desc} · Sende: ${s.potions[it.id] || 0}`, `<button class="btn" data-n="1">${price} 🪙</button><button class="btn ghost" data-n="10">x10</button>`);
         r.querySelectorAll('button').forEach((b) => (b.onclick = () => { const n = +b.dataset.n; if (pay(price * n)) { s.potions[it.id] = (s.potions[it.id] || 0) + n; refresh(); } }));
       }
+      const sp = scrollPrice(lv);
+      const r = row('📜', 'Dönüş Parşömeni', `3 saniyede kampa ışınlar (saldırı alırsan bozulur) · Sende: ${s.potions.scroll || 0}`, `<button class="btn" data-n="1">${sp} 🪙</button><button class="btn ghost" data-n="5">x5</button>`);
+      r.querySelectorAll('button').forEach((b) => (b.onclick = () => { const n = +b.dataset.n; if (pay(sp * n)) { s.potions.scroll = (s.potions.scroll || 0) + n; refresh(); } }));
+      if (!camp) box.appendChild(h('p', 'shopnote', 'Güç iksirleri, sandık, çanta ve binek kamptaki tüccarda.'));
     } else if (tab === 'elix') {
       for (const e of ELIXIRS) {
         const left = Math.max(0, (s.buffs[e.id] || 0) - Date.now()), price = elixirPrice(e, lv);

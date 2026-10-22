@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { xpToNext, ENEMIES, UNIQUES, CAMPS, makeItem, randomSlot } from './data.js';
+import { xpToNext, ENEMIES, UNIQUES, CAMPS, makeItem, randomSlot, MOUNT } from './data.js';
 import { heightAt, rng, BOUNDS } from './world.js';
 import { cloneProp } from './assets.js';
 import { dist2d } from './units.js';
@@ -12,7 +12,7 @@ import { MAPS } from '../server/shared/maps.js';
 export let GIVERS = [], GIVER = null;
 // Called when the active map is chosen (before the game starts).
 export function useQuestMap() {
-  GIVERS = OUTPOSTS.flatMap((o) => o.npcs.filter((n) => n.role === 'quest').map((n) => ({ name: n.name, pos: [n.x, n.z] })));
+  GIVERS = OUTPOSTS.flatMap((o) => o.npcs.filter((n) => n.role === 'quest').map((n) => ({ name: n.name, pos: [n.x, n.z], camp: o.id === 'camp' })));
   GIVER = GIVERS[0];
 }
 useQuestMap();
@@ -34,7 +34,7 @@ export const QUESTS = [
     done: 'Yol artık güvende. Tüccarlar sana minnettar kalacak.', xpk: 0.7, gold: 90 },
   { id: 'q5', map: 'vadi', lv: 5, type: 'collect', item: 'Ruh Mumu', prop: 'candle_triple', scale: 1.3, count: 5, area: [-30, 6], name: 'Ruh Mumları',
     story: 'Kırık Mezarlık\'ta hâlâ yanan ruh mumları var. Onları getir; tapınağın yolunu aydınlatacaklar.',
-    done: 'Alevleri mavi yanıyor… Ruhlar sana yol gösterecek.', xpk: 0.6, gold: 110, potions: { mp: 3 } },
+    done: 'Alevleri mavi yanıyor… Ruhlar sana yol gösterecek. Al bakalım, bu sadık köpek artık senin; yollar kısalacak!', xpk: 0.6, gold: 110, potions: { mp: 3 }, mount: 'wolf' },
   { id: 'q6', map: 'vadi', lv: 6, type: 'drop', item: 'Kırık Asa', icon: 'staff', from: ['mage'], chance: 0.6, count: 5, name: 'Kâhinlerin Asaları',
     story: 'Kemik Kâhinler karanlık güçlerini asalarından alıyor. Bana 5 asa parçası getir ki onları yakalım.',
     done: 'Asalar kırıldıkça kâhinler zayıflayacak. Çok iyi.', xpk: 0.6, gold: 140, gear: 1 },
@@ -99,7 +99,7 @@ for (const m of MAPS) {
 const TYPE_NAMES = new Proxy({}, { get: (_, k) => ENEMIES[k]?.name || String(k) });
 
 export function questReward(q, lv) {
-  return { xp: Math.round(xpToNext(q.lv || lv) * q.xpk), gold: q.gold, potions: q.potions || null, item: q.gear ?? null };
+  return { xp: Math.round(xpToNext(q.lv || lv) * q.xpk), gold: q.gold, potions: q.potions || null, item: q.gear ?? null, mount: q.mount || null };
 }
 export function objectiveText(q) {
   if (q.type === 'kill') return `${TYPE_NAMES[q.target]} öldür`;
@@ -149,6 +149,15 @@ export class Quests {
     this.channel = null;
     this.ver = 0; // bumps when tracker text must refresh
     this.syncNodes();
+    // Players who finished the mount quest before mounts existed get theirs now.
+    for (const q of QUESTS) if (q.mount && this.st.done.includes(q.id) && !(s.mounts || []).includes(q.mount)) setTimeout(() => this.giveMount(q.mount), 3000);
+  }
+  giveMount(id) {
+    const s = this.g.save; s.mounts ||= [];
+    if (s.mounts.includes(id)) return;
+    s.mounts.push(id); s.mountPick ||= id;
+    this.g.ui.announce(`🐕 Yeni binek: ${MOUNT[id].name}! Sağ alttaki 🐎 ile bin.`, 'victory'); sfx.levelUp();
+    saveGame(s, this.g.player);
   }
 
   get next() { return QUESTS.find((q) => q.map === ACTIVE_MAP.id && !this.st.done.includes(q.id)) || null; }
@@ -158,11 +167,12 @@ export class Quests {
   get bounty() { return this.st.bounty; }
   get bountyDone() { const b = this.st.bounty; return !!b && b.prog >= b.count; }
 
-  // NPC head marker: '?' ready to hand in, '!' new quest, '…' in progress.
-  npcMark() {
+  // A new story quest is waiting (only the camp's scout hands them out).
+  get newMain() { const n = this.next; return !this.st.active && !!n && n.lv <= this.g.save.level; }
+  // NPC head marker: '?' ready to hand in, '!' new quest, '…' in progress. Outpost scouts only do bounties and hand-ins.
+  npcMark(camp = true) {
     if (this.mainDone || this.bountyDone) return '?';
-    const n = this.next;
-    if (!this.st.active && n && n.lv <= this.g.save.level) return '!';
+    if (camp && this.newMain) return '!';
     if (!this.st.bounty && this.st.done.length) return '!';
     if (this.st.active || this.st.bounty) return '…';
     return '';
@@ -201,6 +211,7 @@ export class Quests {
     s.gold += r.gold;
     if (r.potions) for (const k in r.potions) s.potions[k] = (s.potions[k] || 0) + r.potions[k];
     if (r.item != null) g.giveItem(makeItem(randomSlot(s.cls), Math.max(s.level, q.lv), r.item, s.cls));
+    if (r.mount) this.giveMount(r.mount);
     sfx.enhanceOk();
     g.ui.announce(`✔ Görev tamamlandı: ${q.name}`, 'victory');
     g.fx.pillar(g.player.pos, 0x7dff9a, { h: 10, r: 1.2, dur: 1.2 });
@@ -350,7 +361,8 @@ export class Quests {
     };
     const m = this.main; if (m) add(m, this.mainDone);
     const b = this.st.bounty; if (b) add(b, this.bountyDone);
-    if (!m && !b && this.npcMark() === '!') out.push({ x: gv.pos[0], z: gv.pos[1], r: 0, kind: 'turnin', label: 'Yeni görev' });
+    if (!m && this.newMain) out.push({ x: GIVER.pos[0], z: GIVER.pos[1], r: 0, kind: 'turnin', label: 'Yeni görev (kamp)' });
+    else if (!m && !b && this.npcMark(false) === '!') out.push({ x: gv.pos[0], z: gv.pos[1], r: 0, kind: 'turnin', label: 'Sözleşme' });
     return out;
   }
 }

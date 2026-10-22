@@ -312,6 +312,7 @@ export const elixirPrice = (e, lv) => Math.round(e.base + e.per * lv);
 export const chestPrice = (lv) => Math.round(60 + lv * 35);
 export const bagPrice = (max) => [400, 1500, 5000, 15000][Math.round((max - 24) / 6)] ?? null; // 24 → 48 slots
 export const travelPrice = (lv) => Math.round(5 + lv * 1.5);
+export const scrollPrice = (lv) => Math.round(15 + lv * 1.2);
 
 // ---------- mounts ----------
 // Bought from merchants; ridden for extra move speed (dismounts when fighting). seat = rider height as a share of the model's height.

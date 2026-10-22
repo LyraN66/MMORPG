@@ -548,6 +548,35 @@ export class Game {
       this.moveMarker.visible = true; this.moveMarker.position.copy(g.point).setY(g.point.y + 0.06); this.moveMarker.userData.t = 0;
     }
   }
+  // ---------- return scroll ----------
+  startRecall() {
+    const p = this.player, s = this.save;
+    if (p.dead || this.recall) return;
+    if (!(s.potions.scroll > 0)) { this.ui.toast('Dönüş Parşömenin yok — tüccardan alabilirsin', '#ffcf6a'); return; }
+    if (dist2d(p.pos, this.campPos) < 12) { this.ui.toast('Zaten kamptasın', '#9fe0ff'); return; }
+    if (p.mount) this.setMount(p, null);
+    p.autoAttack = false; p.moveTarget = null; p.path = null; p.target = null;
+    p.anim.once('Spellcasting', { timeScale: 0.6, lockFor: 3 });
+    this.recall = { t: 0, hp: p.hp, pos: p.pos.clone() };
+    sfx.magic();
+  }
+  updateRecall(dt) {
+    const r = this.recall; if (!r) return;
+    const p = this.player, mv = this.input.move;
+    if (p.dead || p.hp < r.hp - 0.5 || mv.x || mv.y || p.moveTarget || p.autoAttack || dist2d(p.pos, r.pos) > 0.5) {
+      this.recall = null; this.ui.channel(null); p.anim.unlock(); this.ui.toast('Işınlanma bozuldu', '#ff8a6a'); return;
+    }
+    r.t += dt; this.ui.channel('🏠 Kampa dönülüyor', r.t / 3);
+    if (Math.random() < 0.5) this.fx.trail(p.pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 1.5, Math.random() * 2, (Math.random() - 0.5) * 1.5)), 0x9fe8ff, 0.35, 0.8);
+    if (r.t >= 3) {
+      this.recall = null; this.ui.channel(null); this.save.potions.scroll--;
+      this.fx.pillar(p.pos, 0x9fe8ff, { h: 12, r: 1.2, dur: 0.9 });
+      p.pos.copy(this.campPos).add(new THREE.Vector3(0, 0, -4)); this.world.resolve(p.pos, 0.5); p.anim.unlock();
+      this.fx.pillar(p.pos, 0x9fe8ff, { h: 12, r: 1.2, dur: 0.9 }); sfx.levelUp();
+      saveGame(this.save, p);
+    }
+  }
+
   // ---------- mounts ----------
   setMount(u, id) {
     if (u.mount) { this.scene.remove(u.mount.ch.root); u.mount = null; }
@@ -625,6 +654,7 @@ export class Game {
 
     this.updateEnemies(dt);
     this.social?.update(dt);
+    this.updateRecall(dt);
     this.achT = (this.achT || 0) - rawDt; if (this.achT <= 0) { this.achT = 2; this.checkAchievements(); }
     for (let i = this.enemies.length - 1; i >= 0; i--) if (this.enemies[i].remove) {
       const e = this.enemies[i];
