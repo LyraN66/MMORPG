@@ -5,6 +5,7 @@ import { heightAt } from './world.js';
 import { sfx } from './audio.js';
 import { dist2d } from './units.js';
 import { Net } from './net.js';
+import { PROTOCOL } from '../server/shared/version.js';
 
 const TYPES = ['minion', 'rogue', 'warrior', 'mage'];
 const lerpAngle = (a, b, t) => { let d = b - a; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return a + d * t; };
@@ -97,11 +98,14 @@ export class Coop {
       const net = new Net(url);
       try {
         await net.connect(60000);
-        await net.enter({ t: 'hello', info: { name: g.save.name, cls: g.save.cls, lv: g.save.level } });
+        await net.enter({ t: 'hello', proto: PROTOCOL, info: { name: g.save.name, cls: g.save.cls, lv: g.save.level } });
         this.attach(net); this.reconnecting = false;
         g.ui.netBanner(null); g.ui.toast('🌍 Yeniden bağlandın', '#7dff9a'); g.ui.roomBadge();
         return;
-      } catch { net.close(); }
+      } catch (e) {
+        net.close();
+        if (/güncel/i.test(e.message)) { this.reconnecting = false; this.lost(e.message); return; }
+      }
     }
     this.reconnecting = false;
     this.lost('Sunucuya ulaşılamıyor. İnternet bağlantını kontrol et.');

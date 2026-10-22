@@ -2,6 +2,10 @@ import '@fontsource/cinzel/600.css';
 import '@fontsource/cinzel/800.css';
 import '@fontsource/cinzel-decorative/900.css';
 import './style.css';
+import { markReady, checkForUpdate } from './updater.js';
+import { WEB_VERSION } from './version.js';
+import { PROTOCOL } from '../server/shared/version.js';
+markReady();
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -109,6 +113,7 @@ function titleCamera(dt) {
 
 // ---------- menus ----------
 let chosen = 'knight';
+let needApk = null;
 function showTitle() {
   const save = loadSave();
   $('#title').classList.remove('hidden');
@@ -116,6 +121,9 @@ function showTitle() {
   if (save) $('#t-continue').innerHTML = `Tek Başına Oyna <small>${save.name} · ${CLASSES[save.cls].name} · Sv.${save.level}</small>`;
   if (save) $('#t-coop').innerHTML = `🌍 Çevrimiçi Oyna <small>Herkesle aynı vadide</small>`;
   $('#t-new').textContent = save ? 'Yeni Karakter' : 'Oyuna Başla';
+  $('.credit').textContent = `Grafikler: KayKit (CC0) · Sürüm 0.1.${WEB_VERSION}`;
+  $('#t-apk').classList.toggle('hidden', !needApk);
+  if (needApk) $('#t-apk').onclick = () => { window.location.href = needApk.apk; };
   $('#t-continue').onclick = () => { initAudio(); startGame(save); };
   $('#t-coop').classList.toggle('hidden', !save);
   $('#t-coop').onclick = () => { initAudio(); openOnline(save); };
@@ -168,7 +176,7 @@ function openOnline(save) {
       await net.connect();
       if (cancelled) return;
       clearTimeout(slow); st.textContent = 'Vadiye giriliyor…';
-      await net.enter({ t: 'hello', info: { name: save.name, cls: save.cls, lv: save.level } });
+      await net.enter({ t: 'hello', proto: PROTOCOL, info: { name: save.name, cls: save.cls, lv: save.level } });
       if (cancelled) { net.close(); return; }
       $('#lobby').classList.add('hidden');
       startGame(save, net);
@@ -243,6 +251,10 @@ function loop(now) {
 (async function boot() {
   document.title = GAME_NAME;
   resize();
+  // Over-the-air update check (Android app only). If an update applies, the app restarts here.
+  $('#loadtext').textContent = 'Güncelleme kontrol ediliyor…';
+  needApk = await checkForUpdate((text, k) => { $('#loadtext').textContent = text; $('#loadbar i').style.width = Math.round(k * 100) + '%'; });
+  $('#loadbar i').style.width = '0%'; $('#loadtext').textContent = 'Yükleniyor…';
   try {
     await loadAll((k) => { $('#loadbar i').style.width = Math.round(k * 90) + '%'; });
   } catch (e) {

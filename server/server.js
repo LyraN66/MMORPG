@@ -4,6 +4,7 @@
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
 import { Sim } from './sim.js';
+import { PROTOCOL } from './shared/version.js';
 
 const PORT = process.env.PORT || 8080;
 const VERSION = (process.env.RENDER_GIT_COMMIT || 'dev').slice(0, 7);
@@ -18,7 +19,7 @@ const server = http.createServer((req, res) => {
   if (req.url === '/version' || req.url.startsWith('/v/')) { res.writeHead(200, cors); res.end(JSON.stringify({ version: VERSION })); return; }
   if (req.url === '/stats') {
     res.writeHead(200, cors);
-    res.end(JSON.stringify({ players: clients.size, names: [...sim.players.values()].map((p) => p.name), enemies: sim.enemies.size, version: VERSION }));
+    res.end(JSON.stringify({ protocol: PROTOCOL, players: clients.size, names: [...sim.players.values()].map((p) => p.name), enemies: sim.enemies.size, version: VERSION }));
     return;
   }
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -53,6 +54,7 @@ wss.on('connection', (ws) => {
     if (m.t === 'ping') { raw(ws, JSON.stringify({ t: 'pong', ts: m.ts })); return; }
     if (m.t === 'hello') {
       if (ws.joined) return;
+      if (m.proto !== PROTOCOL) { raw(ws, JSON.stringify({ t: 'error', msg: 'Oyunun yeni sürümü var. Uygulamayı kapatıp yeniden aç ya da en son APK\'yı kur — güncellemeden sonra girebilirsin.' })); return; }
       if (clients.size >= MAX_PLAYERS) { raw(ws, JSON.stringify({ t: 'error', msg: 'Dünya dolu, biraz sonra tekrar dene' })); return; }
       const info = { name: String(m.info?.name || 'Oyuncu').slice(0, 14), cls: m.info?.cls === 'mage' ? 'mage' : 'knight', lv: +m.info?.lv || 1 };
       ws.info = info; ws.joined = true;

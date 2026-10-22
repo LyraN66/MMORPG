@@ -25,7 +25,14 @@ jobs:
         run: npm ci
 
       - name: Build web game
+        env:
+          VITE_WEB_VERSION: ${{ github.run_number }}
         run: npm run build
+
+      - name: Package over-the-air update
+        run: |
+          (cd dist && zip -qr ../web.zip .)
+          echo "NATIVE_VERSION=$(grep -oP 'NATIVE_VERSION = \K[0-9]+' src/version.js)" >> "$GITHUB_ENV"
 
       - name: Upload web build for Pages
         uses: actions/upload-pages-artifact@v3
@@ -71,10 +78,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest KemikVadisi.apk \
+          NOTES="Otomatik derleme · commit ${GITHUB_SHA::7}. APK'yı indirip telefona kur; sonraki oyun güncellemeleri uygulama içinden otomatik gelir.
+          <!--kv {\"web\":${{ github.run_number }},\"native\":${NATIVE_VERSION}}-->"
+          gh release create latest KemikVadisi.apk web.zip \
             --target "${GITHUB_SHA}" \
             --title "Kemik Vadisi — son sürüm (#${{ github.run_number }})" \
-            --notes "Otomatik derleme · commit ${GITHUB_SHA::7}. APK'yı indirip telefona kur; yeni sürüm eskisinin üstüne kurulur." \
+            --notes "$NOTES" \
             --latest
 
   # Web version on GitHub Pages: enable Pages (Source: GitHub Actions) and set repo variable PAGES_ENABLED=true.

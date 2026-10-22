@@ -2,5 +2,15 @@
   "appId": "com.lyran66.kemikvadisi",
   "appName": "Kemik Vadisi",
   "webDir": "dist",
-  "android": { "backgroundColor": "#0d0f16" }
+  "android": {
+    "backgroundColor": "#0d0f16"
+  },
+  "plugins": {
+    "CapacitorUpdater": {
+      "autoUpdate": false,
+      "statsUrl": "",
+      "resetWhenUpdate": true,
+      "appReadyTimeout": 15000
+    }
+  }
 }
