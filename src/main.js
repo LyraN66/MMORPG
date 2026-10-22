@@ -18,8 +18,8 @@ import { Game } from './game.js';
 import { UI } from './ui.js';
 import { Input } from './input.js';
 import { initAudio } from './audio.js';
-import { CLASSES, GAME_NAME, ENEMIES, UNIQUES, makeItem } from './data.js';
-import { monstersFor } from '../server/shared/rigs.js';
+import { CLASSES, GAME_NAME, ENEMIES, UNIQUES, MOUNTS, makeItem } from './data.js';
+import { monstersFor, rigOf } from '../server/shared/rigs.js';
 import { loadSave, newSave, saveGame, cacheSave, legacySave, dropLegacy } from './save.js';
 import { account, authenticate, storedToken, forgetToken, logout } from './account.js';
 import { migrateSave } from './data.js';
@@ -358,7 +358,7 @@ function loop(now) {
   if (qs.get('map')) { const sv = loadSave(); if (sv) { sv.map = qs.get('map'); saveGame(sv, null); } }
   activeMap = activateMap(loadSave()?.map || qs.get('map') || 'vadi');
   try {
-    await loadAll((k) => { $('#loadbar i').style.width = Math.round(k * 90) + '%'; }, monstersFor(activeMap, ENEMIES, UNIQUES));
+    await loadAll((k) => { $('#loadbar i').style.width = Math.round(k * 90) + '%'; }, { ...monstersFor(activeMap, ENEMIES, UNIQUES), ...Object.fromEntries(MOUNTS.map((m) => [m.model, rigOf(m.model)])) });
   } catch (e) {
     $('#loadtext').textContent = 'Yükleme hatası: ' + e.message; console.error(e); return;
   }

@@ -7,6 +7,7 @@ import { Sim } from './sim.js';
 import { PROTOCOL } from './shared/version.js';
 import { mapById } from './shared/maps.js';
 import { store, persistent, hashPass, checkPass, newToken } from './store.js';
+import { createSocial } from './social.js';
 import { MAX_LEVEL, CLASSES } from './shared/data.js';
 
 const PORT = process.env.PORT || 8080;
@@ -106,9 +107,11 @@ const simFor = (id) => {
   return sims.get(id);
 };
 
+const social = createSocial({ clients, reply, online });
 const wss = new WebSocketServer({ server, maxPayload: 64 * 1024 });
 
 function leave(ws) {
+  if (ws.uid != null && ws.joined) social.left(ws);
   if (ws.uid != null) {
     if (ws.pending && ws.char) store.putChar(ws.uid, ws.char).catch(() => {});
     if (online.get(ws.uid) === ws) online.delete(ws.uid);
@@ -137,7 +140,7 @@ wss.on('connection', (ws, req) => {
       ws.char = c; store.putChar(ws.uid, c).then(() => reply(ws, { t: 'created', char: c })).catch(() => reply(ws, { t: 'error', msg: 'Karakter kaydedilemedi.' }));
       return;
     }
-    if (m.t === 'save') { if (ws.uid != null && ws.char) onSave(ws, m.s, !!m.now); return; }
+    if (m.t === 'save') { if (ws.uid != null && ws.char && (m.g | 0) === (ws.gen | 0)) onSave(ws, m.s, !!m.now); return; }
     if (m.t === 'hello') {
       if (ws.joined) return;
       if (ws.uid == null || !ws.char) { reply(ws, { t: 'error', msg: 'Önce giriş yap.' }); return; }
@@ -152,13 +155,15 @@ wss.on('connection', (ws, req) => {
       raw(ws, JSON.stringify({ t: 'joined', id: ws.id, host: SERVER_ID, code: ws.map, peers, f: SERVER_ID }));
       broadcast(ws.map, { t: 'peerJoined', id: ws.id, info }, ws.id);
       sim.welcome(ws.id);
+      social.restoreParty(ws);
       return;
     }
     if (!ws.joined) return;
+    if (social.handle(ws, m)) return;
     m.f = ws.id;
     const sim = simFor(ws.map);
     switch (m.t) {
-      case 'ps': sim.onState(ws.id, m); broadcast(ws.map, m, ws.id); break; // own state → same map
+      case 'ps': ws.hp = m.hp; ws.mh = m.mh; ws.lv = m.lv; sim.onState(ws.id, m); broadcast(ws.map, m, ws.id); break; // own state → same map
       case 'act': broadcast(ws.map, m, ws.id); break; // attack/skill visuals → same map
       case 'dmg': sim.onDamage(ws.id, m); break;
       case 'pick': sim.onPick(ws.id, m.lid); break;

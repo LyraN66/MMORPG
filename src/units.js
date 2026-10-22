@@ -26,6 +26,13 @@ class Unit {
   syncModel(dt) {
     this.root.position.copy(this.pos);
     this.root.rotation.y = this.yaw;
+    if (this.mount) { // riding: sit on the mount, which follows below
+      const mo = this.mount; this.root.position.y += mo.seat; this.root.position.x -= Math.sin(this.yaw) * mo.back; this.root.position.z -= Math.cos(this.yaw) * mo.back;
+      mo.ch.root.position.copy(this.pos); mo.ch.root.rotation.y = this.yaw;
+      const mv = this.movingNow ?? (this.lastPos ? this.lastPos.distanceToSquared(this.pos) > 1e-5 : false);
+      mo.an.loop(mv ? 'Running_C' : 'Idle', 0.15, mv ? 1.6 : 1); mo.an.update(dt);
+      this.lastPos = (this.lastPos || this.pos.clone()).copy(this.pos);
+    }
     if (this.flash > 0) {
       this.flash = Math.max(0, this.flash - dt * 5);
       for (const m of this.ch.materials) { m.emissive.setRGB(this.flash * 1.4, this.flash * 1.2, this.flash * 1.1); }
@@ -122,7 +129,7 @@ export class Player extends Unit {
     }
     // Basic attacks don't root the player (cast.move); skills still do.
     const rooted = this.cast && !this.cast.move;
-    const speed = this.cls.moveSpeed * (rooted ? 0 : this.cast ? 0.75 : 1);
+    const speed = this.cls.moveSpeed * (rooted ? 0 : this.cast ? 0.75 : 1) * (this.mount ? 1 + this.mount.def.speed : 1);
     if (rooted) { /* casting a skill */ }
     else if (joy) {
       this.moveTarget = null; this.path = null;
@@ -174,7 +181,7 @@ export class Player extends Unit {
     }
     if (moving) {
       g.world.resolve(this.pos, this.radius);
-      this.anim.loop('Running_A', 0.15, speed / 6.2);
+      if (this.mount) this.anim.loop('Idle', 0.2); else this.anim.loop('Running_A', 0.15, speed / 6.2);
       this.stepT -= dt; if (this.stepT <= 0) { this.stepT = 0.32; sfx.step(); if (Math.random() < 0.5) g.fx.dust(this.pos, 2, 0x7a6a56, 0.6); }
     } else if (!this.cast || this.cast.move) {
       this.pos.y = heightAt(this.pos.x, this.pos.z);
@@ -190,6 +197,7 @@ export class Player extends Unit {
   }
 
   basicAttack() {
+    if (this.mount) this.game.setMount(this, null);
     const g = this.game, t = this.target;
     const spd = 1 / this.cls.atkSpeed;
     this.atkCd = this.cls.atkSpeed;
@@ -220,6 +228,7 @@ export class Player extends Unit {
 
   useSkill(i) {
     const g = this.game, s = this.cls.skills[i];
+    if (this.mount && this.level >= s.unlock && !(this.cds[s.id] > 0)) g.setMount(this, null);
     if (this.level < s.unlock) { g.ui.toast(`${s.name} ${s.unlock}. seviyede açılır`, '#ff8a6a'); sfx.deny(); return; }
     if (this.cds[s.id] > 0 || this.cast || this.dead) { sfx.deny(); return; }
     if (this.safe && s.id !== 'warcry') { g.ui.toast('Güvenli bölgede savaşamazsın', '#9fe0ff'); sfx.deny(); return; }
@@ -368,6 +377,7 @@ export class Player extends Unit {
 
   takeHit(amount, from) {
     if (this.dead) return;
+    if (this.mount) { this.game.setMount(this, null); this.game.ui.toast('Binekten düştün!', '#ffb38a'); }
     this.hp -= amount; this.lastDamageT = 0;
     this.hitFlash(); sfx.hurt();
     this.game.fx.number(this.pos, '-' + amount, 'hurt');
@@ -378,6 +388,7 @@ export class Player extends Unit {
   }
   die() {
     this.hp = 0; this.dead = true; this.cast = null; this.target = null; this.autoAttack = false;
+    if (this.mount) this.game.setMount(this, null);
     this.anim.unlock(); this.anim.once('Death_A', { hold: true });
     sfx.death(); this.game.onPlayerDeath();
   }

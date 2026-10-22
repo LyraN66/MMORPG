@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { heightAt, CAMP_POS, rng } from './world.js';
 import { OUTPOSTS, ACTIVE_MAP, safeAt, nearestOutpost } from '../server/shared/terrain.js';
 import { Player, Enemy, dist2d } from './units.js';
-import { CAMPS, UNIQUES, ENEMIES, xpToNext, MAX_LEVEL, makeItem, RARITY, zoneAt , randomSlot , travelPrice } from './data.js';
+import { CAMPS, UNIQUES, ENEMIES, xpToNext, MAX_LEVEL, makeItem, RARITY, zoneAt , randomSlot , travelPrice , MOUNT, ACH, ACHIEVEMENTS } from './data.js';
 import { Coop } from './coop.js';
+import { Social } from './social.js';
 import { cloneProp, cloneWeapon, makeCharacter, Animator } from './assets.js';
 import { Quests, GIVER } from './quests.js';
 import { sfx } from './audio.js';
@@ -31,11 +32,13 @@ export class Game {
     this.zone = null; this.saveT = 0;
     this.raycaster = new THREE.Raycaster();
     this.coop = net ? new Coop(this, net) : null;
+    this.social = net ? new Social(this) : null;
     // Guests don't simulate the world: enemies arrive from the host.
     if (!this.isGuest) this.setupCamps(); else this.camps = [];
     this.setupUniques();
     this.setupNpcs();
     this.quests = new Quests(this);
+    if (save.mount && save.mounts?.includes(save.mount)) this.setMount(this.player, save.mount);
     this.targetRing = this.makeTargetRing();
     this.moveMarker = this.makeMoveMarker();
     this.guide = this.makeGuide();
@@ -263,6 +266,14 @@ export class Game {
     let crit = false;
     if (isPlayer && Math.random() < 0.12) { crit = true; dmg *= 1.8; }
     dmg = Math.max(1, Math.round(dmg));
+    if (to.isPlayer && to.remote) { // duel hit on another player
+      if (!isPlayer || !this.social?.isFoe(to)) return 0;
+      dmg = Math.max(1, Math.round(dmg * 0.6)); // PvP damage is toned down so duels last
+      this.coop.send({ t: 'pdmg', id: to.netId, d: dmg });
+      to.flash = 1; to.hp = Math.max(1, to.hp - dmg);
+      this.fx.number(to.pos, crit ? dmg + '!' : String(dmg), crit ? 'crit big' : ''); sfx.hit(crit);
+      return dmg;
+    }
     if (to.isEnemy && to.remote) {
       // Guest hitting a host-simulated enemy: report it, predict the hit locally.
       this.coop.send({ t: 'dmg', to: this.coop.hostId, id: to.id, d: dmg, k: opts.knock || 0, st: opts.stun || 0, sl: opts.slow || 0 });
@@ -368,9 +379,9 @@ export class Game {
     const T = ENEMIES[info.type], uq = info.u ? UNIQUES[info.u] : null;
     const at = new THREE.Vector3(info.x, heightAt(info.x, info.z), info.z);
     const diff = THREE.MathUtils.clamp(1 + (info.lv - p.level) * 0.15, 0.15, 1.6);
-    const xp = Math.round(14 * Math.pow(info.lv, 1.25) * T.xp * diff * (uq ? uq.xpMul : 1) * (info.s ? 0.3 : 1));
+    const xp = Math.round(14 * Math.pow(info.lv, 1.25) * T.xp * diff * (uq ? uq.xpMul : 1) * (info.s ? 0.3 : 1) * (this.social?.partyBonus(at) || 1));
     this.gainXp(xp, at);
-    if (uq) this.save.stats.uniques = (this.save.stats.uniques || 0) + 1;
+    if (uq) { this.save.stats.uniques = (this.save.stats.uniques || 0) + 1; const b = (this.save.stats.bk ||= {}); b[uq.id] = (b[uq.id] || 0) + 1; }
     else this.save.stats.kills = (this.save.stats.kills || 0) + 1;
     this.quests.onKill({ type: info.type, level: info.lv, unique: uq, pos: at });
   }
@@ -468,6 +479,17 @@ export class Game {
     const p = this.player; if (p.dead) return;
     const ndc = new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
+    // Other players: duel foe becomes the target, anyone else opens the player menu.
+    if (this.coop) {
+      const pb = [...this.coop.remotes.values()].filter((r) => r.alive && r.root.visible).map((r) => r.hitbox);
+      const ph = this.raycaster.intersectObjects(pb, false)[0];
+      if (ph) {
+        const r = ph.object.userData.player;
+        if (this.social?.isFoe(r)) { p.target = r; p.autoAttack = true; p.moveTarget = null; sfx.ui(); }
+        else this.social?.openMenu(r);
+        return;
+      }
+    }
     const boxes = this.enemies.filter((e) => e.alive && e.root.visible).map((e) => e.hitbox);
     const hit = this.raycaster.intersectObjects(boxes, false)[0];
     if (hit) {
@@ -494,6 +516,42 @@ export class Game {
       this.moveMarker.visible = true; this.moveMarker.position.copy(g.point).setY(g.point.y + 0.06); this.moveMarker.userData.t = 0;
     }
   }
+  // ---------- mounts ----------
+  setMount(u, id) {
+    if (u.mount) { this.scene.remove(u.mount.ch.root); u.mount = null; }
+    u.mountId = id || null;
+    if (u === this.player) this.save.mount = id || null;
+    const def = id ? MOUNT[id] : null; if (!def) return;
+    const ch = makeCharacter(def.model, { height: def.h }); const an = new Animator(ch); an.loop('Idle');
+    ch.root.position.copy(u.pos); this.scene.add(ch.root);
+    ch.root.updateMatrixWorld(true);
+    const top = new THREE.Box3().setFromObject(ch.root).max.y - u.pos.y;
+    u.mount = { ch, an, def, seat: Math.max(0.5, top * def.seat), back: def.h * 0.12 };
+    if (dist2d(u.pos, this.player.pos) < 30) this.fx.dust(u.pos, 14, 0x9a8a6a, 1.2);
+  }
+  toggleMount() {
+    const p = this.player, s = this.save;
+    if (p.mount) { this.setMount(p, null); return; }
+    const id = s.mountPick && s.mounts?.includes(s.mountPick) ? s.mountPick : s.mounts?.at(-1);
+    if (!id) { this.ui.toast('Bineğin yok — tüccardan alabilirsin', '#ffcf6a'); return; }
+    if (p.dead || p.lastDamageT < 4) { this.ui.toast('Savaşırken binek çağıramazsın', '#ff8a6a'); sfx.deny(); return; }
+    this.setMount(p, id); sfx.pickup(); p.autoAttack = false;
+  }
+  // ---------- achievements ----------
+  titleText() { const a = this.save.title && ACH[this.save.title]; return a?.title || ''; }
+  checkAchievements() {
+    const s = this.save; s.ach ||= [];
+    for (const a of ACHIEVEMENTS) {
+      if (s.ach.includes(a.id)) continue;
+      const [v, goal] = a.p(s);
+      if (v >= goal) {
+        s.ach.push(a.id); sfx.rare();
+        this.ui.announce(`🎖️ Başarım: ${a.name}${a.title ? ` — Unvan: “${a.title}”` : ''}`, 'victory');
+        if (a.title && !s.title) s.title = a.id;
+      }
+    }
+  }
+
   // Fast travel between the camp and outposts of this map, for a little gold.
   fastTravel(o) {
     const p = this.player, s = this.save, price = travelPrice(s.level);
@@ -534,6 +592,8 @@ export class Game {
     p.update(dt, { move: move.clone() });
 
     this.updateEnemies(dt);
+    this.social?.update(dt);
+    this.achT = (this.achT || 0) - rawDt; if (this.achT <= 0) { this.achT = 2; this.checkAchievements(); }
     for (let i = this.enemies.length - 1; i >= 0; i--) if (this.enemies[i].remove) {
       const e = this.enemies[i];
       this.ui.removePlate(e); e.dispose(); this.enemies.splice(i, 1);
@@ -647,6 +707,7 @@ export class Game {
       this.fx.burst(at, 60, 0xff7a2a, { speed: 9, up: 4, size: 0.7, life: 0.6, grav: 2 });
       this.fx.burst(at, 20, 0xffe08a, { speed: 5, up: 3, size: 0.5, life: 0.4 });
       if (!pr.visual) for (const e of this.enemiesNear(at, pr.aoe)) this.damage(pr.owner, e, pr.mult * (e === pr.target ? 1 : 0.7), { knock: 0.8 });
+      if (!pr.visual && pr.target?.remote && pr.target.alive) this.damage(pr.owner, pr.target, pr.mult);
       return;
     }
     if (pr.hit && !pr.visual && pr.target?.alive) this.damage(pr.owner, pr.target, pr.mult, { knock: 0.15 });

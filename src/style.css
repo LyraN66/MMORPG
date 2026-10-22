@@ -352,3 +352,50 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 #c-name { flex: 1; align-self: center; font: 700 15px var(--title); color: var(--gold2); }
 .tbtns.small { margin-bottom: 2vh; }
 @media (max-height: 440px) { #login .logo { display: none; } #login { justify-content: center; } .lbox { margin: 0; padding: 10px; gap: 6px; } .lbox input:not([type=checkbox]) { padding: 8px 10px; } }
+
+/* ---------- chat ---------- */
+#chatlog { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(84px + var(--sb)); width: min(440px, 46vw); font-size: 12px; line-height: 1.35; text-shadow: 0 1px 2px #000, 0 0 4px #000; pointer-events: none; display: flex; flex-direction: column; gap: 1px; }
+#chatlog .cch { opacity: .7; font-size: 10.5px; }
+#chatlog.open { bottom: auto; top: calc(56px + var(--st)); background: rgba(5,6,12,.72); border-radius: 10px; padding: 6px 8px; width: min(560px, 92vw); max-height: 46vh; overflow-y: auto; pointer-events: auto; }
+#chatbar { position: absolute; left: 50%; transform: translateX(-50%); top: calc(8px + var(--st)); width: min(560px, 92vw); display: flex; gap: 5px; pointer-events: auto; z-index: 30; }
+#chatbar select, #chatbar input { background: rgba(0,0,0,.75); border: 1px solid var(--line); color: #fff; border-radius: 9px; padding: 8px; font-size: 14px; user-select: text; -webkit-user-select: text; }
+#chat-in { flex: 1; min-width: 0; } #chat-to { width: 90px; }
+#chatbar .btn { padding: 7px 10px; font-size: 13px; }
+/* plates: chat bubble, title, party/duel colours */
+.plate .bub { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 4px; background: rgba(255,255,255,.92); color: #111; font-size: 11px; padding: 3px 7px; border-radius: 8px; max-width: 180px; white-space: normal; text-align: center; text-shadow: none; }
+.plate .ttl { font-size: 9.5px; color: #ffd36b; text-shadow: 0 1px 2px #000; }
+.plate.ally.party .nm b { color: #7dff9a; } .plate.ally.foe .nm b { color: #ff5a4a; } .plate.ally.foe .hpb i { background: #ff4a3a; }
+/* player menu & invites */
+#pmenu { position: absolute; left: 50%; bottom: calc(100px + var(--sb)); transform: translateX(-50%); background: rgba(12,10,18,.94); border: 1px solid var(--line); border-radius: 14px; padding: 8px; pointer-events: auto; z-index: 25; min-width: 240px; }
+.pmh { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; } .pmh b { font: 700 14px var(--title); color: var(--gold2); } .pmh small { opacity: .7; font-size: 11px; flex: 1; }
+.pmx { background: none; border: none; color: #aaa; font-size: 14px; }
+.pmb { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; } .pmb button { background: #ffffff10; border: 1px solid #ffffff1c; color: #eee; border-radius: 9px; padding: 8px 6px; font-size: 12.5px; }
+#invite { position: absolute; left: 50%; top: calc(60px + var(--st)); transform: translateX(-50%); background: rgba(12,10,18,.95); border: 1px solid var(--gold); border-radius: 12px; padding: 8px 10px; display: flex; gap: 8px; align-items: center; pointer-events: auto; z-index: 28; font-size: 13px; box-shadow: 0 4px 20px #000a; }
+#invite .btn { padding: 6px 12px; font-size: 13px; }
+#duelbar { position: absolute; left: 50%; top: calc(8px + var(--st)); transform: translateX(-50%); background: rgba(80,10,10,.85); border: 1px solid #ff6a4a; border-radius: 10px; padding: 4px 10px; font-size: 12.5px; pointer-events: auto; }
+#duelbar button { margin-left: 8px; background: #0006; border: 1px solid #ffffff30; color: #fff; border-radius: 7px; padding: 2px 8px; font-size: 11.5px; }
+/* party frames */
+#party { position: absolute; left: calc(10px + var(--sl)); top: calc(96px + var(--st)); display: flex; flex-direction: column; gap: 3px; pointer-events: auto; width: 150px; }
+.pth { font: 700 11px var(--title); color: #7dff9a; display: flex; justify-content: space-between; align-items: center; }
+.pth button { background: #0006; border: 1px solid #ffffff24; color: #ccc; border-radius: 6px; font-size: 10px; padding: 1px 6px; }
+.pm { background: rgba(0,0,0,.55); border: 1px solid rgba(125,255,154,.25); border-radius: 7px; padding: 3px 6px; cursor: pointer; }
+.pm .pn { font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .pm .pn small { opacity: .6; }
+.pm .pb { height: 4px; background: #300; border-radius: 3px; overflow: hidden; margin-top: 2px; } .pm .pb i { display: block; height: 100%; background: #e04040; }
+.pm.far { opacity: .6; } .pfar { font-size: 9.5px; opacity: .7; }
+/* trade */
+.trgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; } .trgrid h4 { margin: 0 0 4px; font: 700 12px var(--title); color: var(--gold2); }
+.troff { min-height: 52px; background: #0006; border-radius: 10px; padding: 5px; display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; }
+.troff .bslot { width: 42px; } .tritem { width: 100%; }
+.trgold { display: flex; align-items: center; gap: 6px; margin-top: 5px; font-size: 13px; } .trgold input { width: 100px; background: #0008; border: 1px solid var(--line); color: #fff; border-radius: 8px; padding: 5px; user-select: text; }
+#tr-bag { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; max-height: 120px; overflow-y: auto; }
+.trhint { font-size: 11.5px; opacity: .65; margin: 8px 0 4px; } .trbtns { margin-top: 8px; } .trstatus { font-size: 12.5px; color: #9fe0ff; margin: 6px 0 0; text-align: center; }
+/* mount button & achievements */
+#mount-btn.on { border-color: #7dff9a; box-shadow: 0 0 10px rgba(125,255,154,.55); }
+#achlist { display: flex; flex-direction: column; gap: 5px; }
+.achrow { display: flex; gap: 10px; align-items: center; background: #0006; border: 1px solid #ffffff12; border-radius: 10px; padding: 6px 10px; }
+.achrow .ai { font-size: 22px; } .achrow .an { flex: 1; display: flex; flex-direction: column; } .achrow .an b { font-size: 13px; } .achrow .an small { font-size: 11px; opacity: .7; }
+.achrow:not(.done) { opacity: .75; } .achrow.done { border-color: rgba(255,211,107,.35); cursor: pointer; } .achrow.on { border-color: #7dff9a; box-shadow: 0 0 8px rgba(125,255,154,.35); }
+.ab { height: 4px; background: #ffffff18; border-radius: 3px; overflow: hidden; margin-top: 3px; } .ab i { display: block; height: 100%; background: var(--gold); }
+.atag { font-size: 11px; color: #7dff9a; font-weight: 700; } .av { font-size: 10px !important; }
+.ph .btn.mini { margin-left: auto; margin-right: 8px; padding: 4px 9px; font-size: 12px; }
+@media (max-height: 440px) { #chatlog { bottom: calc(70px + var(--sb)); font-size: 11px; } #party { width: 130px; } }

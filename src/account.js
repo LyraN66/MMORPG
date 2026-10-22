@@ -26,7 +26,7 @@ export async function authenticate(net, mode, { user, pass, token, remember }) {
   net.send({ t: 'auth', proto: PROTOCOL, mode, user, pass, token, remember });
   const r = await p;
   if (r.t === 'error') { const e = new Error(r.msg); e.relogin = !!r.relogin; throw e; }
-  account.user = r.user; account.token = r.token; account.remember = !!remember; account.net = net;
+  account.user = r.user; account.token = r.token; account.gen = 0; account.remember = !!remember; account.net = net;
   keepToken(r.token, !!remember);
   return r;
 }

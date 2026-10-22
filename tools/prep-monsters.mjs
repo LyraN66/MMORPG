@@ -13,8 +13,8 @@ const OUT = path.resolve('public/assets/mon');
 fs.mkdirSync(OUT, { recursive: true });
 await MeshoptEncoder.ready;
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.encoder': MeshoptEncoder });
-const { ENEMIES, UNIQUES } = await import('../server/shared/data.js');
-const MONSTER_MODELS = [...new Set([...Object.values(ENEMIES), ...Object.values(UNIQUES)].filter((t) => t.rig || ENEMIES[t.type]?.rig).map((t) => t.model))];
+const { ENEMIES, UNIQUES, MOUNTS } = await import('../server/shared/data.js');
+const MONSTER_MODELS = [...new Set([...Object.values(ENEMIES), ...Object.values(UNIQUES)].filter((t) => t.rig || ENEMIES[t.type]?.rig).map((t) => t.model).concat(MOUNTS.map((m) => m.model)))].filter((m) => process.argv[3] !== 'missing' || !fs.existsSync(path.resolve('public/assets/mon', m + '.glb')));
 let total = 0;
 for (const m of MONSTER_MODELS) {
   const fam = m.slice(0, m.indexOf('_')), name = m.slice(m.indexOf('_') + 1);

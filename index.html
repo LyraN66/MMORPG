@@ -97,7 +97,7 @@
   <div id="controls" class="hidden">
     <div id="joy"><div id="knob"></div></div>
     <button id="npc-btn" class="hidden btn"></button>
-    <div id="pots"><button id="pot-hp" class="pot">🧪<b>0</b></button><button id="pot-mp" class="pot">💧<b>0</b></button></div>
+    <div id="pots"><button id="mount-btn" class="pot hidden">🐎</button><button id="pot-hp" class="pot">🧪<b>0</b></button><button id="pot-mp" class="pot">💧<b>0</b></button></div>
     <div id="skills"></div>
     <button id="atk">⚔️</button>
   </div>
@@ -111,7 +111,7 @@
 
   <!-- Inventory -->
   <div id="inv" class="modal hidden"><div class="panel">
-    <div class="ph"><h3>Karakter</h3><button class="close">✕</button></div>
+    <div class="ph"><h3>Karakter</h3><button class="btn ghost mini" id="btn-ach">🎖️ Başarımlar</button><button class="close">✕</button></div>
     <div class="invgrid">
       <div><div id="equip"></div><div id="stats"></div></div>
       <div><div class="bagh">Çanta <span id="bagcount"></span><button class="btn ghost mini" id="sellall">💰 Tümünü Sat</button></div><div id="bag"></div></div>
@@ -160,6 +160,13 @@
     <div class="ph"><h3>🌀 Işınlanma Kapısı</h3><button class="close">✕</button></div>
     <p class="npcsay" id="portalnote"></p>
     <div id="portallist"></div>
+  </div></div>
+
+  <!-- Achievements -->
+  <div id="achm" class="modal hidden"><div class="panel">
+    <div class="ph"><h3>🎖️ Başarımlar ve Unvanlar</h3><button class="close">✕</button></div>
+    <p class="npcsay" id="ach-sum"></p>
+    <div id="achlist"></div>
   </div></div>
 
   <!-- Map -->
