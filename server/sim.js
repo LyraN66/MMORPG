@@ -2,11 +2,11 @@
 // Mirrors the client's enemy behaviour (src/units.js) without any graphics. Clients render enemies
 // from the snapshots sent here and report the damage they deal.
 import fs from 'node:fs';
-import { ENEMIES, UNIQUES, CAMPS, makeItem } from './shared/data.js';
-import { generateLayout, heightAt, rng, safeAt } from './shared/terrain.js';
+import { ENEMIES, UNIQUES, makeItem } from './shared/data.js';
+import { makeTerrain, rng } from './shared/terrain.js';
+import { RIGS, rigOf, rigClip } from './shared/rigs.js';
 
 const CLIPS = JSON.parse(fs.readFileSync(new URL('./shared/clips.json', import.meta.url), 'utf8'));
-const TYPES = ['minion', 'rogue', 'warrior', 'mage'];
 const dist2d = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const angleTo = (a, b) => Math.atan2(b.x - a.x, b.z - a.z);
 const lerpAngle = (a, b, t) => { let d = b - a; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return a + d * t; };
@@ -14,14 +14,14 @@ const r2 = (v) => Math.round(v * 100) / 100;
 
 // Animation state as the clients will play it; durations come from the real clips.
 class Anim {
-  constructor() { this.name = 'Idle'; this.once = false; this.ts = 1; this.seq = 0; this.lock = 0; }
+  constructor(rig) { this.rig = rig; this.name = 'Idle'; this.once = false; this.ts = 1; this.seq = 0; this.lock = 0; }
   loop(name, ts = 1) {
     if (this.lock > 0) return;
     if (this.name === name && !this.once) { this.ts = ts; return; }
     this.name = name; this.once = false; this.ts = ts;
   }
   play(name, { timeScale = 1, hold = false, lockFor } = {}) {
-    const d = (CLIPS[name] || 1) / timeScale;
+    const d = (this.rig ? RIGS[this.rig].dur[rigClip(this.rig, name)] || 1 : CLIPS[name] || 1) / timeScale;
     this.name = name; this.once = true; this.ts = timeScale; this.seq++;
     this.lock = hold ? Infinity : (lockFor ?? d * 0.92);
     return d;
@@ -44,12 +44,12 @@ class Enemy {
     this.def = (1.5 + level * 0.9) * T.def;
     this.speed = T.speed * (unique ? 0.95 : 1);
     this.range = unique ? T.range * 1.5 : T.range;
-    this.pos = { x: home.x, y: heightAt(home.x, home.z), z: home.z };
+    this.pos = { x: home.x, y: sim.T.heightAt(home.x, home.z), z: home.z };
     this.yaw = Math.random() * 6.28;
     this.alive = true; this.tgt = null; this.knock = { x: 0, z: 0 };
     this.slowT = 0; this.stunT = 0; this.atkCd = 1 + Math.random(); this.wanderT = Math.random() * 4; this.wanderTo = null;
     this.abilityT = 4; this.enraged = false; this.state = 'spawn';
-    this.anim = new Anim();
+    this.anim = new Anim(rigOf(unique ? unique.model : T.model));
     this.stateT = Math.min(this.anim.play('Spawn_Ground_Skeletons', { timeScale: unique ? 0.8 : 1.3, lockFor: 0 }), 2.2);
   }
   get isBoss() { return !!this.unique; }
@@ -75,7 +75,7 @@ class Enemy {
     if (this.state === 'spawn') { if (this.stateT <= 0) this.state = 'idle'; return; }
     if (this.stunT > 0) { this.anim.loop('Idle', 0.3); return; }
 
-    if (this.tgt && (this.tgt.dead || this.tgt.gone || safeAt(this.tgt.pos.x, this.tgt.pos.z))) this.tgt = null;
+    if (this.tgt && (this.tgt.dead || this.tgt.gone || this.sim.T.safeAt(this.tgt.pos.x, this.tgt.pos.z))) this.tgt = null;
     const p = this.tgt || sim.nearestPlayer(this.pos);
     const dp = !p || p.dead ? 999 : dist2d(this.pos, p.pos);
     const dh = dist2d(this.pos, this.home);
@@ -90,7 +90,7 @@ class Enemy {
         const k = Math.min(1, Math.max(0, (this.castT - 0.35) / 0.75)), e = k * k * (3 - 2 * k);
         this.pos.x = this.leapFrom.x + (this.leapTo.x - this.leapFrom.x) * e;
         this.pos.z = this.leapFrom.z + (this.leapTo.z - this.leapFrom.z) * e;
-        this.pos.y = heightAt(this.pos.x, this.pos.z) + Math.sin(k * Math.PI) * 3.5;
+        this.pos.y = this.sim.T.heightAt(this.pos.x, this.pos.z) + Math.sin(k * Math.PI) * 3.5;
         return;
       }
       if (this.spinning && p && dist2d(p.pos, this.pos) > 1) this.stepToward(p.pos, spd * 0.9, dt);
@@ -137,7 +137,7 @@ class Enemy {
       const dx = this.pos.x - o.pos.x, dz = this.pos.z - o.pos.z, d = Math.hypot(dx, dz), m = this.radius + o.radius;
       if (d < m && d > 1e-3) { const k = (m - d) * 0.5; this.pos.x += dx / d * k; this.pos.z += dz / d * k; }
     }
-    this.pos.y = heightAt(this.pos.x, this.pos.z);
+    this.pos.y = this.sim.T.heightAt(this.pos.x, this.pos.z);
   }
 
   aggro() {
@@ -187,7 +187,7 @@ class Enemy {
       return;
     }
     if (this.abilityT > 0) return;
-    const roll = Math.random(), big = this.unique.id === 'morvath';
+    const roll = Math.random(), big = !!this.unique.final;
     if (roll < 0.42) {
       const at = { x: p.pos.x, z: p.pos.z }, rr = big ? 4.2 : 3.4;
       this.abilityT = this.enraged ? 4 : 6;
@@ -222,7 +222,8 @@ class Enemy {
         const n = big ? 3 : 2;
         for (let k = 0; k < n; k++) {
           const a = Math.random() * 6.28;
-          const e = sim.spawnEnemy(big && k === 0 ? 'mage' : 'minion', Math.max(1, this.level - 2), { x: this.pos.x + Math.cos(a) * 3.5, z: this.pos.z + Math.sin(a) * 3.5 }, null);
+          const sm = this.unique.summons || ['minion'];
+          const e = sim.spawnEnemy(sm[k % sm.length], Math.max(1, this.level - 2), { x: this.pos.x + Math.cos(a) * 3.5, z: this.pos.z + Math.sin(a) * 3.5 }, null);
           e.summoned = true; e.noLoot = Math.random() < 0.6; e.T = { ...e.T, aggro: 30 };
         }
       } }], 1);
@@ -246,22 +247,23 @@ class Enemy {
 }
 
 export class Sim {
-  constructor({ send, broadcast }) {
+  constructor({ map, send, broadcast }) {
     this.send = send; this.broadcast = broadcast;
-    const L = generateLayout();
+    this.map = map; this.T = makeTerrain(map);
+    const L = this.T.generateLayout();
     this.col = L.colliders;
     this.enemies = new Map(); this.players = new Map(); this.loot = new Map();
     this.timers = []; this.nextId = 1; this.nextLid = 1; this.time = 0; this.snapT = 0; this.utT = 0;
     const R = rng(4242);
-    this.camps = CAMPS.map(([x, z, type, count, lmin, lmax]) => ({ x, z, type, count, lmin, lmax, respawnQ: [] }));
+    this.camps = map.camps.map(([x, z, type, count, lmin, lmax]) => ({ x, z, type, count, lmin, lmax, respawnQ: [] }));
     for (const c of this.camps) for (let i = 0; i < c.count; i++) this.spawnAtCamp(c, R);
-    this.uniques = Object.values(UNIQUES).map((u) => ({ def: u, timer: u.firstSpawn, enemy: null }));
+    this.uniques = Object.values(UNIQUES).filter((u) => u.map === map.id).map((u) => ({ def: u, timer: u.firstSpawn, enemy: null }));
   }
 
   // ---------- players ----------
   addPlayer(id, info = {}) {
     this.players.set(id, { id, isPlayer: true, name: info.name || 'Oyuncu', cls: info.cls || 'knight', level: info.lv || 1,
-      pos: { x: 0, y: 0, z: 59 }, radius: 0.55, def: 5, dead: false, gone: false, fresh: true });
+      pos: { x: this.map.spawn[0], y: 0, z: this.map.spawn[1] }, radius: 0.55, def: 5, dead: false, gone: false, fresh: true });
   }
   removePlayer(id) {
     const p = this.players.get(id); if (!p) return;
@@ -273,10 +275,10 @@ export class Sim {
     p.pos.x = m.x; p.pos.y = m.y; p.pos.z = m.z; p.dead = !!m.dd; p.def = m.df || 5; p.level = m.lv || p.level; p.fresh = false;
     if (m.nm) p.name = m.nm;
   }
-  alivePlayers() { return [...this.players.values()].filter((p) => !p.dead && !p.fresh && !safeAt(p.pos.x, p.pos.z)); }
+  alivePlayers() { return [...this.players.values()].filter((p) => !p.dead && !p.fresh && !this.T.safeAt(p.pos.x, p.pos.z)); }
   nearestPlayer(pos) {
     let best = null, bd = Infinity;
-    for (const p of this.players.values()) { if (p.dead || p.fresh || safeAt(p.pos.x, p.pos.z)) continue; const d = dist2d(p.pos, pos); if (d < bd) { bd = d; best = p; } }
+    for (const p of this.players.values()) { if (p.dead || p.fresh || this.T.safeAt(p.pos.x, p.pos.z)) continue; const d = dist2d(p.pos, pos); if (d < bd) { bd = d; best = p; } }
     return best;
   }
   welcome(id) {
@@ -288,12 +290,12 @@ export class Sim {
   // ---------- combat ----------
   onDamage(id, m) {
     const e = this.enemies.get(m.id), p = this.players.get(id);
-    if (!e || !e.alive || !p || p.dead || safeAt(p.pos.x, p.pos.z)) return;
+    if (!e || !e.alive || !p || p.dead || this.T.safeAt(p.pos.x, p.pos.z)) return;
     const d = Math.max(1, Math.min(100000, Math.round(+m.d || 0)));
     e.takeHit(d, p, { knock: +m.k || 0, stun: Math.min(3, +m.st || 0), slow: Math.min(5, +m.sl || 0) });
   }
   damagePlayer(e, p, mult) {
-    if (safeAt(p.pos.x, p.pos.z)) return;
+    if (this.T.safeAt(p.pos.x, p.pos.z)) return;
     const dmg = Math.max(1, Math.round(e.atk * mult * (60 / (60 + (p.def || 5) * 3)) * (0.9 + Math.random() * 0.2)));
     this.send(p.id, { t: 'hurt', to: p.id, d: dmg, e: e.id });
   }
@@ -331,7 +333,7 @@ export class Sim {
       const u = UNIQUES[e.unique.id];
       this.broadcast({ t: 'ann', x: `🏆 ${u.name} yenildi!`, k: 'victory' });
       drop('gold', Math.round(u.gold * (0.8 + Math.random() * 0.4)));
-      const items = u.id === 'morvath' ? [3, 2, 2] : [2, Math.random() < 0.5 ? 2 : 1];
+      const items = u.final ? [3, 2, 2] : [2, Math.random() < 0.5 ? 2 : 1];
       for (const r of items) drop('item', makeItem(slot(), e.level, r, cls()));
       drop('potion', 'hp'); drop('potion', 'mp'); drop('potion', 'hp');
       this.resetUnique(e);
@@ -387,7 +389,7 @@ export class Sim {
       const l = [];
       for (const e of this.enemies.values()) {
         if (!e.alive || dist2d(p.pos, e.pos) > 45) continue;
-        l.push([e.id, TYPES.indexOf(e.type), e.level, e.unique ? e.unique.id : '', r2(e.pos.x), r2(e.pos.y), r2(e.pos.z), r2(e.yaw),
+        l.push([e.id, e.type, e.level, e.unique ? e.unique.id : '', r2(e.pos.x), r2(e.pos.y), r2(e.pos.z), r2(e.yaw),
           Math.ceil(e.hp), e.maxHp, e.anim.name, e.anim.seq, e.anim.once ? 1 : 0, r2(e.anim.ts),
           (e.enraged ? 1 : 0) | (e.slowT > 0 ? 2 : 0) | (e.stunT > 0 ? 4 : 0) | (e.summoned ? 8 : 0)]);
       }

@@ -1,15 +1,30 @@
 import * as THREE from 'three';
 import { buildInstancedProps } from './assets.js';
 import { ZONES } from './data.js';
-import { BOUNDS, CAMP, CRYPT, rng, roadX, heightAt, generateLayout } from '../server/shared/terrain.js';
+import { BOUNDS, CAMP, CRYPT, ACTIVE_MAP, THEMES, rng, roadX, heightAt, generateLayout } from '../server/shared/terrain.js';
 
 export { BOUNDS, rng, roadX, heightAt };
 export const CAMP_POS = new THREE.Vector3(CAMP[0], 0, CAMP[1]);
 export const CRYPT_POS = new THREE.Vector3(CRYPT[0], 0, CRYPT[1]);
 
+// Per-theme look: prop recolour (colour, strength), road/plaza colours, grass density, floating mote colours per zone,
+// light colours. The first valley ('bones') keeps its original look.
+const VIS = {
+  bones: { tint: [0xffffff, 0], dirt: 0x6b5238, stone: 0x5b5651, grass: 1, motes: [0xffc36b, 0x9cff9c, 0xff6a4a], hemi: [0x8a9bd0, 0x3b2a20], sun: 0xffd2a1, moon: true },
+  swamp: { tint: [0x5f8a4a, 0.3], dirt: 0x4a4430, stone: 0x4a5048, grass: 1.3, motes: [0xb8ff6a, 0x7dff4a, 0xd06aff], hemi: [0x8ab09a, 0x2a3020], sun: 0xd8f0b0, moon: true },
+  desert: { tint: [0xe0a868, 0.45], dirt: 0xb08458, stone: 0x9a7a5a, grass: 0.12, motes: [0xffe0a0, 0xffc070, 0xff8a4a], hemi: [0xffd8a8, 0x7a5030], sun: 0xffe2b0, moon: false },
+  snow: { tint: [0xf0f6ff, 0.6], dirt: 0xa8b4c4, stone: 0x8a94a4, grass: 0.25, motes: [0xffffff, 0xe8f4ff, 0xbfe0ff], hemi: [0xc8d8ff, 0x6a7890], sun: 0xf0f4ff, moon: true },
+  lava: { tint: [0x3a2a26, 0.55], dirt: 0x2a1c18, stone: 0x3a3230, grass: 0, motes: [0xff8a3a, 0xff5a1a, 0xff3a1a], hemi: [0xb06a4a, 0x2a1008], sun: 0xff9a6a, moon: false },
+  coast: { tint: [0x8ad0d0, 0.18], dirt: 0xc8b07a, stone: 0x6a8a8a, grass: 0.6, motes: [0xbff8ff, 0x7ad8ff, 0x4ab0ff], hemi: [0xa8d8ff, 0x405a50], sun: 0xfff0d8, moon: false },
+  ghost: { tint: [0x46506e, 0.6], dirt: 0x3a3440, stone: 0x4a4458, grass: 0.8, motes: [0xc0a8ff, 0x8a7aff, 0xb07aff], hemi: [0x8a80c8, 0x241a30], sun: 0xb8b0ff, moon: true },
+  dragon: { tint: [0x8a4a3a, 0.4], dirt: 0x4a2e24, stone: 0x5a4440, grass: 0.15, motes: [0xffb06a, 0xff7a3a, 0xff4a2a], hemi: [0xd08a6a, 0x3a1a10], sun: 0xffb08a, moon: false },
+};
+
 export class World {
   constructor(scene, quality) {
-    this.scene = scene; this.quality = quality;
+    this.scene = scene; this.quality = quality; this.map = ACTIVE_MAP; this.vis = VIS[this.map.theme] || VIS.bones;
+    CAMP_POS.set(CAMP[0], 0, CAMP[1]);
+    if (CRYPT) CRYPT_POS.set(CRYPT[0], 0, CRYPT[1]);
     this.lights = [];
     this.flames = [];
     this.time = 0;
@@ -25,7 +40,7 @@ export class World {
     const skyGeo = new THREE.SphereGeometry(120, 32, 16);
     const skyMat = new THREE.ShaderMaterial({
       side: THREE.BackSide, depthWrite: false, fog: false,
-      uniforms: { top: { value: new THREE.Color(0x0b1026) }, mid: { value: new THREE.Color(0x3a2d4f) }, bot: { value: new THREE.Color(0xc46a3d) } },
+      uniforms: { top: { value: new THREE.Color(this.map.sky.top) }, mid: { value: new THREE.Color(this.map.sky.mid) }, bot: { value: new THREE.Color(this.map.sky.bot) } },
       vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
       fragmentShader: `uniform vec3 top, mid, bot; varying vec3 vP;
         void main(){ float h = vP.y; vec3 c = mix(bot, mid, smoothstep(-0.05, 0.18, h)); c = mix(c, top, smoothstep(0.15, 0.7, h));
@@ -44,12 +59,13 @@ export class World {
     // Sky, stars and moon live inside the camera's far plane and follow the player.
     const moon = new THREE.Mesh(new THREE.CircleGeometry(4.2, 32), new THREE.MeshBasicMaterial({ color: 0xffe9c4, fog: false }));
     moon.position.set(-42, 45, -90); moon.lookAt(0, 0, 0); this.sky.add(moon);
+    if (!this.vis.moon) { moon.material.color.set(0xfff4d8); moon.position.set(30, 60, -70); moon.lookAt(0, 0, 0); this.stars.material.opacity = 0.15; }
     const halo = new THREE.Mesh(new THREE.CircleGeometry(12, 32), new THREE.MeshBasicMaterial({ color: 0xffd6a0, fog: false, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false }));
     halo.position.copy(moon.position).multiplyScalar(1.01); halo.lookAt(0, 0, 0); this.sky.add(halo);
 
     // Lighting
-    s.add(new THREE.HemisphereLight(0x8a9bd0, 0x3b2a20, 1.25));
-    const sun = new THREE.DirectionalLight(0xffd2a1, 2.6);
+    s.add(new THREE.HemisphereLight(this.vis.hemi[0], this.vis.hemi[1], 1.25));
+    const sun = new THREE.DirectionalLight(this.vis.sun, 2.6);
     sun.position.set(-25, 45, 18);
     sun.castShadow = this.quality !== 'low';
     const sm = this.quality === 'high' ? 2048 : 1024;
@@ -62,6 +78,7 @@ export class World {
 
     this.buildTerrain();
     this.buildProps();
+    this.buildPortal();
     if (this.quality !== 'low') this.buildGrass();
     this.buildAmbientMotes();
   }
@@ -73,7 +90,8 @@ export class World {
     geo.rotateX(-Math.PI / 2);
     geo.translate((BOUNDS.minX + BOUNDS.maxX) / 2, 0, (BOUNDS.minZ + BOUNDS.maxZ) / 2);
     const pos = geo.attributes.position; const col = []; const c = new THREE.Color(), c2 = new THREE.Color();
-    const dirt = new THREE.Color(0x6b5238), stone = new THREE.Color(0x5b5651);
+    const dirt = new THREE.Color(this.vis.dirt), stone = new THREE.Color(this.vis.stone);
+    const [cx, cz] = this.map.camp, lz = this.map.crypt[1] + 9;
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i), z = pos.getZ(i);
       pos.setY(i, heightAt(x, z));
@@ -89,15 +107,16 @@ export class World {
       const dr = Math.abs(x - roadX(z));
       const road = 1 - THREE.MathUtils.smoothstep(dr, 1.6, 3.2 + Math.sin(z * 0.8) * 0.4);
       c.lerp(z < -60 ? stone : dirt, road * 0.85);
-      const plaza = 1 - THREE.MathUtils.smoothstep(Math.hypot(x, z - 63), 7, 11);
+      const plaza = 1 - THREE.MathUtils.smoothstep(Math.hypot(x - cx, z - cz), 7, 11);
       c.lerp(dirt, plaza * 0.6);
-      const pz = 1 - THREE.MathUtils.smoothstep(Math.hypot(x, z + 84), 9, 14);
+      const pz = 1 - THREE.MathUtils.smoothstep(Math.hypot(x - this.map.crypt[0], z - lz), 9, 14);
       c.lerp(stone, pz * 0.8);
       col.push(c.r, c.g, c.b);
     }
     geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     geo.computeVertexNormals();
     const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    const lava = this.map.theme === 'lava' || this.map.theme === 'dragon';
     // subtle procedural detail noise in fragment shader
     mat.onBeforeCompile = (sh) => {
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWp;')
@@ -110,6 +129,12 @@ export class World {
         .replace('#include <color_fragment>', `#include <color_fragment>
           float nn = vn(vWp.xz*1.7)*0.5 + vn(vWp.xz*6.3)*0.3 + vn(vWp.xz*0.35)*0.4;
           diffuseColor.rgb *= 0.78 + nn*0.38;`);
+      if (lava) sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+          float cr = vn(vWp.xz*0.22 + vec2(3.1, 7.7)) * 0.7 + vn(vWp.xz*0.9) * 0.3;
+          float pool = smoothstep(0.71, 0.75, cr);
+          float rim = smoothstep(0.64, 0.71, cr) * (1.0 - pool);
+          diffuseColor.rgb *= 1.0 - rim * 0.55;
+          totalEmissiveRadiance += vec3(1.0, 0.32, 0.05) * pool * (0.75 + 0.35 * sin(vWp.x * 0.7 + vWp.z * 0.5));`);
     };
     const terrain = new THREE.Mesh(geo, mat);
     terrain.receiveShadow = true;
@@ -133,17 +158,19 @@ export class World {
       this.chunks.push(im);
     }
     // Props between the camera and the player dissolve (dithered) so the hero is never hidden.
-    this.occl = { uCam: { value: new THREE.Vector3() }, uPl: { value: new THREE.Vector3() } };
+    const tc = new THREE.Color(this.vis.tint[0]);
+    this.occl = { uCam: { value: new THREE.Vector3() }, uPl: { value: new THREE.Vector3() }, uTint: { value: new THREE.Vector4(tc.r, tc.g, tc.b, this.vis.tint[1]) } };
     const seen = new Set();
     this.propsGroup.traverse((m) => {
       if (!m.isMesh || seen.has(m.material)) return;
       seen.add(m.material);
       const mat = m.material;
       mat.onBeforeCompile = (sh) => {
-        sh.uniforms.uCam = this.occl.uCam; sh.uniforms.uPl = this.occl.uPl;
+        sh.uniforms.uCam = this.occl.uCam; sh.uniforms.uPl = this.occl.uPl; sh.uniforms.uTint = this.occl.uTint;
         sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWpo;')
           .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvec4 wpo = vec4(transformed,1.);\n#ifdef USE_INSTANCING\nwpo = instanceMatrix*wpo;\n#endif\nvWpo = (modelMatrix*wpo).xyz;');
-        sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWpo; uniform vec3 uCam, uPl;')
+        sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWpo; uniform vec3 uCam, uPl; uniform vec4 uTint;')
+          .replace('#include <map_fragment>', '#include <map_fragment>\n  diffuseColor.rgb = mix(diffuseColor.rgb, uTint.rgb * (0.35 + dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11)) * 1.3), uTint.a);')
           .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
             vec3 seg = uPl - uCam; float L = length(seg); vec3 dir = seg / L;
             float t = dot(vWpo - uCam, dir);
@@ -160,9 +187,34 @@ export class World {
     });
     // A few real point lights for key locations (cheap glow elsewhere).
     if (this.quality !== 'low') {
-      const fire = new THREE.PointLight(0xff8a3c, 40, 22, 1.8); fire.position.set(0, heightAt(0, 63) + 1.6, 63); this.scene.add(fire); this.lights.push({ l: fire, base: 40 });
-      const crypt = new THREE.PointLight(0xff3322, 60, 30, 1.6); crypt.position.set(0, 4, -82); this.scene.add(crypt); this.lights.push({ l: crypt, base: 60 });
+      const fire = new THREE.PointLight(0xff8a3c, 40, 22, 1.8); fire.position.set(CAMP_POS.x, heightAt(CAMP_POS.x, CAMP_POS.z) + 1.6, CAMP_POS.z); this.scene.add(fire); this.lights.push({ l: fire, base: 40 });
+      if (this.map.crypt) { const crypt = new THREE.PointLight(this.map.theme === 'bones' ? 0xff3322 : (THEMES[this.map.theme]?.flame ?? 0xff3322), 60, 30, 1.6); crypt.position.set(CRYPT_POS.x, 4, CRYPT_POS.z + 11); this.scene.add(crypt); this.lights.push({ l: crypt, base: 60 }); }
     }
+  }
+
+  // Swirling portal disc inside the camp's arch.
+  buildPortal() {
+    const P = this.map.portal; if (!P) return;
+    const c = this.map.camp, ry = Math.atan2(c[0] - P.x, c[1] - P.z);
+    this.portalU = { uT: { value: 0 } };
+    const mat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, uniforms: this.portalU,
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+      fragmentShader: `uniform float uT; varying vec2 vUv;
+        void main(){ vec2 p = (vUv - 0.5) * 2.0; float r = length(p); if (r > 1.0) discard;
+          float a = atan(p.y, p.x) + uT * 1.6 + r * 5.0;
+          float sw = 0.5 + 0.5 * sin(a * 4.0 - uT * 3.0);
+          vec3 col = mix(vec3(0.25, 0.1, 0.9), vec3(0.4, 0.95, 1.0), sw) * (1.2 - r);
+          float edge = smoothstep(1.0, 0.82, r);
+          gl_FragColor = vec4(col * 1.6, edge * (0.55 + 0.45 * sw)); }`,
+    });
+    const disc = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 3.4), mat);
+    const y = heightAt(P.x, P.z);
+    disc.position.set(P.x, y + 1.85, P.z); disc.rotation.y = ry;
+    this.scene.add(disc);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: World.glowTex ||= makeGlowTexture(), color: 0x7a6bff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.7 }));
+    glow.position.copy(disc.position); glow.scale.setScalar(6); this.scene.add(glow);
+    this.portal = { disc, glow, pos: new THREE.Vector3(P.x, y, P.z) };
   }
 
   addFlame(pos, size, big, color = 0xff8a3c) {
@@ -175,7 +227,8 @@ export class World {
   }
 
   buildGrass() {
-    const count = this.quality === 'high' ? 14000 : 6000;
+    const count = Math.round((this.quality === 'high' ? 14000 : 6000) * this.vis.grass);
+    if (!count) return;
     const blade = new THREE.BufferGeometry();
     const v = [];
     // Three crossed blades; each triangle duplicated with reversed winding so both sides are lit.
@@ -209,7 +262,7 @@ export class World {
     while (n < count && tries++ < count * 4) {
       const x = BOUNDS.minX + R() * (BOUNDS.maxX - BOUNDS.minX), z = BOUNDS.minZ + 8 + R() * (BOUNDS.maxZ - BOUNDS.minZ - 8);
       if (Math.abs(x - roadX(z)) < 3) continue;
-      if (Math.hypot(x, z - 63) < 9 || Math.hypot(x, z + 84) < 13) continue;
+      if (Math.hypot(x - this.map.camp[0], z - this.map.camp[1]) < 9 || Math.hypot(x - this.map.crypt[0], z - this.map.crypt[1] - 9) < 13) continue;
       if (z < -60 && R() < 0.6) continue;
       q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), R() * 6.28);
       const sc = 0.6 + R() * 0.8;
@@ -256,9 +309,17 @@ export class World {
   update(dt, playerPos, fx) {
     this.time += dt;
     if (this.grassUniforms) this.grassUniforms.uTime.value = this.time;
+    if (this.portalU) {
+      this.portalU.uT.value = this.time;
+      this.portal.glow.material.opacity = 0.55 + Math.sin(this.time * 2) * 0.15;
+      if (fx && this.portal.pos.distanceToSquared(playerPos) < 900 && Math.random() < 0.6) {
+        const p = this.portal.disc.position;
+        fx.trail(new THREE.Vector3(p.x + (Math.random() - 0.5) * 2.4, p.y + (Math.random() - 0.5) * 3, p.z + (Math.random() - 0.5) * 0.6), Math.random() < 0.5 ? 0x8a7aff : 0x7fe8ff, 0.35, 0.9);
+      }
+    }
     this.moteUniforms.uTime.value = this.time;
     this.moteUniforms.uCenter.value.copy(playerPos);
-    const zn = playerPos.z < -32 ? 0xff6a4a : playerPos.z < 10 ? 0x9cff9c : 0xffc36b;
+    const zn = this.vis.motes[playerPos.z < -32 ? 2 : playerPos.z < 10 ? 1 : 0];
     this.moteUniforms.uColor.value.lerp(new THREE.Color(zn), dt * 0.8);
     if (this.occl && this.cam) { this.occl.uCam.value.copy(this.cam.position); this.occl.uPl.value.set(playerPos.x, playerPos.y + 1.2, playerPos.z); }
     this.sun.position.set(playerPos.x - 25, 45, playerPos.z + 18);

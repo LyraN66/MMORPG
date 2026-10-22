@@ -2,19 +2,35 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as skClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { rigClip } from '../server/shared/rigs.js';
 
 const BASE = import.meta.env.BASE_URL + 'assets/';
 const FILES = ['anims', 'knight', 'mage', 'rogue', 'skel_minion', 'skel_warrior', 'skel_rogue', 'skel_mage', 'props', 'weapons'];
 
-export const A = { gltf: {}, clips: {}, props: {}, weapons: {} };
+export const A = { gltf: {}, clips: {}, props: {}, weapons: {}, rig: {}, rawH: {} };
 
-export async function loadAll(onProgress) {
+// monsters: { modelName: rig } for the monsters of the active map (each ships with its own animations).
+export async function loadAll(onProgress, monsters = {}) {
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
   let done = 0;
-  await Promise.all(FILES.map((f) => loader.loadAsync(BASE + f + '.glb').then((g) => {
-    A.gltf[f] = g; done++; onProgress?.(done / FILES.length);
-  })));
+  const mons = Object.keys(monsters), total = FILES.length + mons.length + (mons.length ? 1 : 0);
+  const tick = () => { done++; onProgress?.(done / total); };
+  const jobs = FILES.map((f) => loader.loadAsync(BASE + f + '.glb').then((g) => { A.gltf[f] = g; tick(); }));
+  for (const m of mons) jobs.push(loader.loadAsync(BASE + 'mon/' + m + '.glb').then((g) => { A.gltf[m] = g; A.rig[m] = monsters[m]; tick(); }));
+  let atlas = null;
+  if (mons.length) jobs.push(new THREE.TextureLoader().loadAsync(BASE + 'mon/atlas.png').then((t) => {
+    t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.generateMipmaps = false;
+    atlas = t; tick();
+  }));
+  await Promise.all(jobs);
+  // Monster models share one colour atlas (stripped from the files to keep downloads small).
+  for (const m of mons) A.gltf[m].scene.traverse((o) => { if (o.isMesh) { o.material.map = atlas; o.material.needsUpdate = true; } });
+  for (const m of mons) {
+    const g = A.gltf[m]; g.scene.updateMatrixWorld(true);
+    A.rawH[m] = new THREE.Box3().setFromObject(g.scene).getSize(new THREE.Vector3()).y || 1;
+    g.clipMap = {}; for (const c of g.animations) g.clipMap[c.name] = c;
+  }
   for (const c of A.gltf.anims.animations) {
     // Root motion off: strip root/IK position drift to keep characters in place.
     c.tracks = c.tracks.filter((t) => !(t.name.startsWith('root.') && t.name.endsWith('.position')));
@@ -45,8 +61,13 @@ export async function loadAll(onProgress) {
 }
 
 // Create an animated character instance with its own mixer and named actions.
-export function makeCharacter(model, { weapon, offhand, hideMeshes } = {}) {
-  const root = skClone(A.gltf[model].scene);
+export function makeCharacter(model, { weapon, offhand, hideMeshes, height } = {}) {
+  const rig = A.rig[model];
+  let root = skClone(A.gltf[model].scene);
+  const animRoot = root;
+  if (rig) { // monster: normalise its size and wrap it so callers can scale the root freely
+    const w = new THREE.Group(); root.scale.multiplyScalar((height || 2) / A.rawH[model]); w.add(root); root = w;
+  }
   const materials = [];
   root.traverse((o) => {
     if (o.isMesh) {
@@ -67,11 +88,11 @@ export function makeCharacter(model, { weapon, offhand, hideMeshes } = {}) {
   };
   const wR = attach(weapon, slotR);
   const wL = attach(offhand, slotL);
-  const mixer = new THREE.AnimationMixer(root);
+  const mixer = new THREE.AnimationMixer(animRoot);
   const actions = {};
   const get = (name) => {
     if (!actions[name]) {
-      const clip = A.clips[name];
+      const clip = rig ? A.gltf[model].clipMap[rigClip(rig, name)] : A.clips[name];
       if (!clip) return null;
       actions[name] = mixer.clipAction(clip);
     }
@@ -88,6 +109,11 @@ export class Animator {
     if (this.lock > 0) return;
     if (this.current?.name === name) { this.current.action.timeScale = timeScale; return; }
     const a = this.ch.get(name); if (!a) return;
+    if (this.current?.action === a) { // monsters map several names onto one clip
+      a.setLoop(THREE.LoopRepeat, Infinity); a.clampWhenFinished = false; a.timeScale = timeScale; a.enabled = true; a.setEffectiveWeight(1);
+      if (!a.isRunning()) { a.reset(); a.play(); }
+      this.current = { name, action: a, once: false, ts: timeScale }; return;
+    }
     a.reset(); a.setLoop(THREE.LoopRepeat, Infinity); a.clampWhenFinished = false; a.timeScale = timeScale;
     a.enabled = true; a.setEffectiveWeight(1); a.play();
     if (this.current) this.current.action.crossFadeTo(a, fade, false);

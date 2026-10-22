@@ -4,8 +4,9 @@ import { sfx, soundOn, setSound } from './audio.js';
 import { saveGame } from './save.js';
 import { BOUNDS, roadX, CAMP_POS, CRYPT_POS } from './world.js';
 import { dist2d } from './units.js';
-import { QUESTS, GIVER, GIVERS, questReward, objectiveText } from './quests.js';
-import { OUTPOSTS } from '../server/shared/terrain.js';
+import { QUESTS, GIVER, GIVERS, questReward, objectiveText, mapLock, chainDone } from './quests.js';
+import { OUTPOSTS, ACTIVE_MAP } from '../server/shared/terrain.js';
+import { MAPS } from '../server/shared/maps.js';
 import { UNIQUES, ZONES, CAMPS } from './data.js';
 
 const $ = (s) => document.querySelector(s);
@@ -82,7 +83,7 @@ export class UI {
     $('#netlost button').onclick = () => { saveGame(this.g.save, this.g.player); location.reload(); };
   }
   addNpcPlate(n) {
-    const icon = { smith: '⚒️', merchant: '💰', quest: '📜' }[n.role], role = { smith: 'Güçlendirme', merchant: 'Market', quest: 'Görevler' }[n.role];
+    const icon = { smith: '⚒️', merchant: '💰', quest: '📜', portal: '🌀' }[n.role], role = { smith: 'Güçlendirme', merchant: 'Market', quest: 'Görevler', portal: 'Haritalar' }[n.role];
     const el = h('div', 'plate npc', `<div class="mark"></div><div class="nm">${icon} ${n.name}</div><div class="role">${role}</div>`);
     this.overlay.appendChild(el); this.npcPlates.push({ n, el, mark: el.querySelector('.mark') });
   }
@@ -148,7 +149,7 @@ export class UI {
     if (act !== this.actKey) {
       this.actKey = act; this.nearNpc = near; this.nearNode = node;
       const b = $('#npc-btn'); b.classList.toggle('hidden', !act);
-      if (near) b.innerHTML = { smith: '⚒️ Demirci', merchant: '💰 Market', quest: '📜 Görevler' }[near.role];
+      if (near) b.innerHTML = { smith: '⚒️ Demirci', merchant: '💰 Market', quest: '📜 Görevler', portal: '🌀 Işınlanma Kapısı' }[near.role];
       else if (node) b.innerHTML = `✋ Topla: ${node.q.item}`;
     }
     this.nearNode = node;
@@ -222,7 +223,7 @@ export class UI {
     c.strokeRect(tx(BOUNDS.minX + 4), tz(BOUNDS.minZ + 5), (BOUNDS.maxX - BOUNDS.minX - 8) * scale, (BOUNDS.maxZ - BOUNDS.minZ - 9) * scale);
     // camp / crypt icons
     c.font = `${12 * devicePixelRatio}px sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.fillText('⛺', tx(CAMP_POS.x), tz(CAMP_POS.z)); c.fillText('🏛️', tx(CRYPT_POS.x), tz(CRYPT_POS.z + 3));
+    c.fillText('⛺', tx(CAMP_POS.x), tz(CAMP_POS.z)); if (ACTIVE_MAP.crypt) c.fillText('🏛️', tx(CRYPT_POS.x), tz(CRYPT_POS.z + 3));
     for (const l of g.loot) { if (l.kind !== 'item') continue; c.fillStyle = RARITY[l.data.rarity].color; c.fillRect(tx(l.pos.x) - 2, tz(l.pos.z) - 2, 4, 4); }
     for (const e of g.enemies) {
       if (!e.alive) continue;
@@ -250,6 +251,7 @@ export class UI {
     }
     const qm = g.quests.npcMark();
     for (const o of OUTPOSTS) if (o.id !== 'camp') { c.font = `${12 * D}px sans-serif`; c.fillText('⛺', tx(o.x), tz(o.z)); }
+    if (ACTIVE_MAP.portal) { c.font = `${12 * D}px sans-serif`; c.fillText('🌀', tx(ACTIVE_MAP.portal.x), tz(ACTIVE_MAP.portal.z)); }
     if (qm === '!' || qm === '?') { c.font = `bold ${14 * D}px sans-serif`; c.fillStyle = '#ffd23a'; for (const gv of GIVERS) c.fillText(qm, tx(gv.pos[0]), tz(gv.pos[1]) - 8 * D); }
     if (nearest && nd * scale > W / 2 - 12) {
       const a = Math.atan2(nearest.z - p.pos.z, nearest.x - p.pos.x), r = W / 2 - 10 * D;
@@ -391,9 +393,24 @@ export class UI {
 
   openNpc(n) {
     if (dist2d(n.pos, this.g.player.pos) > 6) { this.g.player.moveTarget = n.pos.clone().add(new THREE.Vector3(0, 0, 2.5)); return; }
+    if (n.role === 'portal') { this.openPortal(); return; }
     const title = { smith: '⚒️ ', merchant: '💰 ', quest: '📜 ' }[n.role] + n.name;
     $({ smith: '#smith', merchant: '#shop', quest: '#quest' }[n.role] + ' .ph h3').textContent = title;
     if (n.role === 'smith') this.openSmith(); else if (n.role === 'quest') this.openQuests(); else this.openShop();
+  }
+  openPortal() {
+    const s = this.g.save, cur = ACTIVE_MAP.id;
+    const box = $('#portallist'); box.innerHTML = '';
+    for (const m of [...MAPS].sort((a, b) => a.order - b.order)) {
+      const lock = mapLock(s, m), here = m.id === cur, done = chainDone(s, m.id);
+      const el = h('div', 'pcard' + (here ? ' here' : '') + (lock ? ' locked' : ''), `<div class="pn"><b>${m.order}. ${m.name}</b><small>Seviye ${m.lv[0]}–${m.lv[1]}${done ? ' · ✔ Hikâye tamam' : ''}</small></div>
+        ${here ? '<span class="ptag">Buradasın</span>' : lock ? `<span class="ptag lock">🔒 ${lock}</span>` : '<button class="btn">Işınlan</button>'}`);
+      const b = el.querySelector('button'); if (b) b.onclick = () => { this.closeModal(); this.g.travel(m.id); };
+      box.appendChild(el);
+    }
+    const nx = MAPS.find((m) => m.order === ACTIVE_MAP.order + 1);
+    $('#portalnote').textContent = nx ? (mapLock(s, nx) ? `Sıradaki: ${nx.name} — ${mapLock(s, nx)}.` : `${nx.name} seni bekliyor!`) : 'Yeni diyarlar yakında açılacak…';
+    this.openModal('#portal');
   }
   interact() {
     if (this.nearNpc) this.openNpc(this.nearNpc);
@@ -518,6 +535,7 @@ export class UI {
   }
 
   openMap() {
+    $('#map h3').textContent = '🗺️ ' + ACTIVE_MAP.name;
     this.openModal('#map');
     const cv = $('#mapcv'); const box = cv.parentElement.getBoundingClientRect();
     const D = Math.min(2, devicePixelRatio);
@@ -572,7 +590,7 @@ export class UI {
       else if (q.kind === 'node') { c.font = `${15 * D}px sans-serif`; c.fillStyle = '#ffe08a'; c.fillText('✦', X(q.x), Z(q.z)); }
     }
     c.font = `${20 * D}px sans-serif`;
-    c.fillText('⛺', X(CAMP_POS.x), Z(CAMP_POS.z)); c.fillText('🏛️', X(CRYPT_POS.x), Z(CRYPT_POS.z + 2));
+    c.fillText('⛺', X(CAMP_POS.x), Z(CAMP_POS.z)); if (ACTIVE_MAP.crypt) c.fillText('🏛️', X(CRYPT_POS.x), Z(CRYPT_POS.z + 2));
     for (const u of g.uniques) {
       const d = u.def; const alive = u.enemy && u.enemy.alive;
       c.font = `${20 * D}px sans-serif`; c.globalAlpha = alive ? 1 : 0.5; c.fillText('💀', X(d.pos[0]), Z(d.pos[1])); c.globalAlpha = 1;
@@ -592,6 +610,7 @@ export class UI {
       c.font = `bold ${10 * D}px sans-serif`; c.fillStyle = '#000'; c.fillText(o.name, X(o.x) + D, Z(o.z) + 16 * D + D); c.fillStyle = '#bfe3ff'; c.fillText(o.name, X(o.x), Z(o.z) + 16 * D);
       c.strokeStyle = 'rgba(159,224,255,.5)'; c.lineWidth = 1.5 * D; c.setLineDash([2 * D, 3 * D]); c.beginPath(); c.arc(X(o.x), Z(o.z), o.r * k, 0, 6.28); c.stroke(); c.setLineDash([]);
     }
+    if (ACTIVE_MAP.portal) { const P = ACTIVE_MAP.portal; c.font = `${18 * D}px sans-serif`; c.fillText('🌀', X(P.x), Z(P.z)); c.font = `bold ${10 * D}px sans-serif`; c.fillStyle = '#000'; c.fillText('Işınlanma Kapısı', X(P.x) + D, Z(P.z) + 16 * D + D); c.fillStyle = '#c9bfff'; c.fillText('Işınlanma Kapısı', X(P.x), Z(P.z) + 16 * D); }
     if (qm === '!' || qm === '?') { c.font = `900 ${20 * D}px sans-serif`; c.fillStyle = '#ffd23a'; for (const gv of GIVERS) c.fillText(qm, X(gv.pos[0]) + 9 * D, Z(gv.pos[1]) - 10 * D); }
     c.save(); c.translate(X(p.pos.x), Z(p.pos.z)); c.rotate(-p.yaw + Math.PI);
     const s = 8 * D; c.fillStyle = '#fff'; c.strokeStyle = '#000'; c.lineWidth = 2 * D;

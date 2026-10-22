@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { heightAt, CAMP_POS, rng } from './world.js';
-import { OUTPOSTS, safeAt, nearestOutpost } from '../server/shared/terrain.js';
+import { OUTPOSTS, ACTIVE_MAP, safeAt, nearestOutpost } from '../server/shared/terrain.js';
 import { Player, Enemy, dist2d } from './units.js';
 import { CAMPS, UNIQUES, ENEMIES, xpToNext, MAX_LEVEL, makeItem, RARITY, zoneAt } from './data.js';
 import { Coop } from './coop.js';
@@ -81,7 +81,7 @@ export class Game {
     return e;
   }
   setupUniques() {
-    this.uniques = Object.values(UNIQUES).map((u) => ({ def: u, timer: u.firstSpawn, enemy: null }));
+    this.uniques = Object.values(UNIQUES).filter((u) => u.map === ACTIVE_MAP.id).map((u) => ({ def: u, timer: u.firstSpawn, enemy: null }));
   }
   spawnUnique(u) {
     const d = u.def;
@@ -103,6 +103,24 @@ export class Game {
       const npc = { ch, an, pos: new THREE.Vector3(d.x, y, d.z), name: d.name, role: d.role, ring, outpost: o };
       this.npcs.push(npc); this.ui.addNpcPlate(npc);
     }
+    if (this.world.portal) {
+      const npc = { ch: null, an: null, pos: this.world.portal.pos.clone(), name: 'Işınlanma Kapısı', role: 'portal' };
+      this.npcs.push(npc); this.ui.addNpcPlate(npc);
+    }
+  }
+
+  // Travel to another map: save, then restart the game on that map (online players rejoin automatically).
+  travel(mapId) {
+    const s = this.save, p = this.player;
+    if (this.traveling || mapId === ACTIVE_MAP.id) return;
+    this.traveling = true;
+    sfx.levelUp(); this.fx.pillar(p.pos, 0x8a7aff, { h: 18, r: 1.6, dur: 1.2 }); this.fx.flash('rgba(140,120,255,0.45)');
+    this.fx.burst(p.pos.clone().setY(p.pos.y + 1), 90, 0x9fe8ff, { speed: 7, up: 8, size: 0.45, life: 1.2, grav: -1 });
+    s.map = mapId; s.pos = null; s.hp = null;
+    s.visited = [...new Set([...(s.visited || []), ACTIVE_MAP.id, mapId])];
+    saveGame(s, null);
+    try { sessionStorage.setItem('kv-resume', this.coop ? 'online' : 'solo'); } catch { /* ignore */ }
+    setTimeout(() => { this.coop?.net.close(); location.reload(); }, 1100);
   }
   makeTargetRing() {
     const m = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 40), new THREE.MeshBasicMaterial({ color: 0xff4a4a, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide }));
@@ -182,7 +200,7 @@ export class Game {
     const fx = this.fx;
     if (kind === 'ebolt') {
       const e = this.enemyById.get(a.e), to = this.coop?.remoteOrMe(a.to);
-      if (e && to) { const from = e.pos.clone(); from.y += 1.6 * e.scale; this.projectile({ from, target: to, speed: 11, color: 0xa66bff, size: 0.55, owner: e, mult: 0, kind: 'enemyBolt', visual: true }); }
+      if (e && to) { const from = e.pos.clone(); from.y += 1.6 * e.scale; this.projectile({ from, target: to, speed: 11, color: e.T.bolt || 0xa66bff, size: 0.55, owner: e, mult: 0, kind: 'enemyBolt', visual: true }); }
       return;
     }
     const at = new THREE.Vector3(a.x, heightAt(a.x, a.z), a.z);
@@ -245,6 +263,22 @@ export class Game {
     this.projectiles.push({ ...o, pos: o.from.clone(), mesh: core, life: 3 });
   }
 
+  // Mage black hole: swirling vortex that drags enemies toward its centre (owner null = remote replay, visuals only).
+  blackHole(at, owner) {
+    sfx.frost(); this.fx.shake(0.3);
+    const core = this.fx.glow(0x6a3cff, 4.5); core.position.copy(at).setY(at.y + 1.2);
+    this.fx.timedMesh(core, 3.2, (k) => { core.scale.setScalar(4.5 * Math.min(1, k * 6) * (1 - Math.max(0, k - 0.85) * 6)); core.material.rotation += 0.15; });
+    for (let k = 0; k < 6; k++) this.later(k * 0.5, () => {
+      this.fx.groundRing(at, { color: 0x8a5cff, r0: 6, r1: 0.5, dur: 0.5 });
+      for (let i = 0; i < 14; i++) { const a = Math.random() * 6.28, r = 3 + Math.random() * 3; this.fx.trail(at.clone().add(new THREE.Vector3(Math.cos(a) * r, 0.3 + Math.random() * 2, Math.sin(a) * r)), 0xb08cff, 0.45, 0.5); }
+      if (!owner) return;
+      for (const e of this.enemiesNear(at, 6.5)) {
+        if (!e.remote && !e.unique && e.state !== 'cast') { const d = new THREE.Vector3().subVectors(at, e.pos).setY(0); const l = d.length(); if (l > 1) e.pos.addScaledVector(d, Math.min(1, 1.4 / l)); }
+        this.damage(owner, e, 0.9, { knock: 0, slow: 1, color: 'frost' });
+      }
+    });
+  }
+
   meteorImpact(at, owner) {
     // A meteor falls from the sky and explodes.
     const start = at.clone().add(new THREE.Vector3(-6, 22, 6));
@@ -287,7 +321,7 @@ export class Game {
       this.announceAll(`🏆 ${u.name} yenildi!`, 'victory');
       sfx.rare();
       drop('gold', Math.round(u.gold * (0.8 + Math.random() * 0.4)));
-      const items = u.id === 'morvath' ? [3, 2, 2] : [2, Math.random() < 0.5 ? 2 : 1];
+      const items = u.final ? [3, 2, 2] : [2, Math.random() < 0.5 ? 2 : 1];
       for (const r of items) drop('item', makeItem(['weapon', 'armor', 'ring'][Math.floor(Math.random() * 3)], e.level, r, this.lootClass()));
       drop('potion', 'hp'); drop('potion', 'mp'); drop('potion', 'hp');
       const st = this.uniques.find((x) => x.def.id === u.id); st.enemy = null; st.timer = u.respawn;
@@ -335,7 +369,7 @@ export class Game {
       if (data.rarity >= 1 && !net.quiet && dist2d(pos, this.player.pos) < 40) sfx.rare();
     } else if (kind === 'quest') {
       color = 0x7dff9a;
-      mesh = data.icon === 'staff' ? cloneWeapon('sk_staff', 0.55) : cloneProp('bone_A', 1.1);
+      mesh = data.icon === 'staff' ? cloneWeapon('sk_staff', 0.55) : cloneProp(data.icon || 'bone_A', data.icon && data.icon !== 'bone_A' ? 0.8 : 1.1);
       beam = this.fx.lootBeam(pos, color);
     } else {
       color = data === 'hp' ? 0xff4a5a : 0x4aa8ff;
@@ -464,6 +498,7 @@ export class Game {
       if (this.player.target === e) { this.player.target = null; this.player.autoAttack = false; }
     }
     for (const n of this.npcs) {
+      if (!n.ch) continue;
       const d = dist2d(n.pos, p.pos); n.ch.root.visible = d < 45;
       if (d < 45) n.an.update(dt);
       if (d < 6) n.ch.root.rotation.y = Math.atan2(p.pos.x - n.pos.x, p.pos.z - n.pos.z);

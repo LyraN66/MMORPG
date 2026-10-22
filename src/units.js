@@ -203,7 +203,7 @@ export class Player extends Unit {
     if (this.safe && s.id !== 'warcry') { g.ui.toast('Güvenli bölgede savaşamazsın', '#9fe0ff'); sfx.deny(); return; }
     if (this.mp < s.mp) { g.ui.toast('Yetersiz mana', '#6ab8ff'); sfx.deny(); return; }
     // auto-acquire target for targeted skills
-    const needsTarget = ['charge', 'fireball', 'meteor'].includes(s.id);
+    const needsTarget = ['charge', 'fireball', 'meteor', 'chain'].includes(s.id);
     if (needsTarget && (!this.target || !this.target.alive || dist2d(this.pos, this.target.pos) > 16)) this.target = g.nearestEnemy(this.pos, 14);
     if (needsTarget && !this.target) { g.ui.toast('Hedef yok', '#ffcf6a'); sfx.deny(); return; }
     this.mp -= s.mp; this.cds[s.id] = s.cd; this.moveTarget = null;
@@ -273,6 +273,52 @@ export class Player extends Unit {
         g.later(1.1, () => g.meteorImpact(at, this));
         break;
       }
+      case 'quake': { // cone in front of the knight
+        this.anim.once('2H_Melee_Attack_Chop', { timeScale: 1.2, lockFor: 0.7 });
+        if (t) this.yaw = angleTo(this.pos, t.pos);
+        this.cast = { t: 0, dur: 0.75, events: [{ at: 0.42, fn: () => {
+          sfx.heavySwing(); g.fx.shake(0.6); g.fx.stop(0.06);
+          const fwd = new THREE.Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw));
+          for (let k = 1; k <= 4; k++) g.later(k * 0.06, () => {
+            const c = this.pos.clone().addScaledVector(fwd, k * 1.7);
+            g.fx.groundRing(c, { color: 0xffa04a, r0: 0.4, r1: 1.2 + k * 0.5, dur: 0.45 }); g.fx.dust(c, 10, 0x8a6a4a, 1.4);
+            g.fx.burst(c.clone().setY(c.y + 0.3), 12, 0xffb066, { speed: 3, up: 7, size: 0.5, solid: true, grav: 14 });
+          });
+          for (const e of g.enemiesNear(this.pos, 7.5)) if (Math.abs(angDiff(angleTo(this.pos, e.pos), this.yaw)) < 0.75 || dist2d(this.pos, e.pos) < 2) g.damage(this, e, 2.6, { knock: 1.2, stun: 1 });
+        } }] };
+        break;
+      }
+      case 'bladestorm': { // 3 s of spinning blades; the knight keeps walking
+        sfx.spin(); this.stormT = 3;
+        for (let k = 0; k < 6; k++) g.later(k * 0.5, () => {
+          if (this.dead) return;
+          this.anim.once('2H_Melee_Attack_Spinning', { timeScale: 1.6, lockFor: 0.3 });
+          sfx.spin(); g.fx.groundRing(this.pos, { color: 0xc8e6ff, r0: 1, r1: 4.2, dur: 0.35 });
+          for (let a = 0; a < 4; a++) g.fx.slash(this.pos, k * 0.8 + a * Math.PI / 2, 0xdff1ff, { radius: 3.4, width: 0.7, dur: 0.22, tilt: 0.15 });
+          for (const e of g.enemiesNear(this.pos, 4.2)) g.damage(this, e, 0.8, { knock: 0.3 });
+        });
+        this.cast = { t: 0, dur: 0.1, move: true, events: [] };
+        break;
+      }
+      case 'chain': { // lightning hopping between up to 5 enemies
+        this.anim.once('Spellcast_Shoot', { timeScale: 1.4, lockFor: 0.45 });
+        this.cast = { t: 0, dur: 0.5, face: t.pos, events: [{ at: 0.25, fn: () => {
+          sfx.magic(); const hit = new Set(); let from = new THREE.Vector3(); this.ch.slotR.getWorldPosition(from); let cur = t;
+          for (let k = 0; k < 5 && cur; k++) {
+            const a = from.clone(), b = cur.pos.clone().setY(cur.pos.y + 1.2), e = cur;
+            g.later(k * 0.09, () => { g.fx.bolt(a, b, 0xbfe6ff, 0.3); g.fx.burst(b, 10, 0xd8f0ff, { speed: 5, size: 0.35 }); if (e.alive) g.damage(this, e, 2.0, { knock: 0.2, stun: 0.3 }); });
+            hit.add(cur); from = b;
+            cur = g.enemiesNear(cur.pos, 8).filter((x) => !hit.has(x)).sort((x, y) => dist2d(x.pos, cur.pos) - dist2d(y.pos, cur.pos))[0];
+          }
+        } }] };
+        break;
+      }
+      case 'blackhole': { // pulls enemies in and grinds them for 3 s
+        const at = (t && dist2d(this.pos, t.pos) < 14 ? t.pos : this.pos.clone().add(new THREE.Vector3(Math.sin(this.yaw) * 5, 0, Math.cos(this.yaw) * 5))).clone();
+        this.anim.once('Spellcast_Summon', { timeScale: 1.3, lockFor: 0.7 });
+        this.cast = { t: 0, dur: 0.75, face: at, events: [{ at: 0.4, fn: () => g.blackHole(at, this) }] };
+        break;
+      }
     }
   }
 
@@ -330,7 +376,7 @@ export class Enemy extends Unit {
     this.def = (1.5 + level * 0.9) * T.def;
     this.speed = T.speed * (unique ? 0.95 : 1);
     this.range = (unique ? T.range * 1.5 : T.range);
-    this.setupModel(unique ? unique.model : T.model, { weapon: unique ? unique.weapon : T.weapon, offhand: unique ? unique.offhand : T.offhand });
+    this.setupModel(unique ? unique.model : T.model, { weapon: unique ? unique.weapon : T.weapon, offhand: unique ? unique.offhand : T.offhand, height: unique?.h || T.h });
     this.root.scale.setScalar(scale);
     if (unique) {
       for (const m of this.ch.materials) { m.color.lerp(new THREE.Color(unique.tint), 0.18); }
@@ -467,7 +513,7 @@ export class Enemy extends Unit {
       this.castLite(dur * 0.35, () => {
         if (!this.alive) return;
         const from = this.pos.clone(); from.y += 1.6 * this.scale;
-        g.projectile({ from, target: p, speed: 11, color: 0xa66bff, size: 0.55, owner: this, mult: 1, kind: 'enemyBolt' });
+        g.projectile({ from, target: p, speed: 11, color: this.T.bolt || 0xa66bff, size: 0.55, owner: this, mult: 1, kind: 'enemyBolt' });
         g.efx('ebolt', { e: this.id, to: p.netId ?? -1 }, true);
       });
     } else {
@@ -501,7 +547,7 @@ export class Enemy extends Unit {
     }
     if (this.abilityT > 0) return;
     const roll = Math.random();
-    const big = this.unique.id === 'morvath';
+    const big = !!this.unique.final;
     if (roll < 0.42) {
       // Leap slam on player position
       const at = p.pos.clone(); this.abilityT = this.enraged ? 4 : 6;
@@ -534,7 +580,7 @@ export class Enemy extends Unit {
         const n = big ? 3 : 2;
         for (let k = 0; k < n; k++) {
           const a = Math.random() * 6.28, at = this.pos.clone().add(new THREE.Vector3(Math.cos(a) * 3.5, 0, Math.sin(a) * 3.5));
-          const e = g.spawnEnemy(big && k === 0 ? 'mage' : 'minion', Math.max(1, this.level - 2), at, null);
+          const sm = this.unique.summons || ['minion']; const e = g.spawnEnemy(sm[k % sm.length], Math.max(1, this.level - 2), at, null);
           e.summoned = true; e.noLoot = Math.random() < 0.6; e.T = { ...e.T, aggro: 30 };
         }
       } }], 1);

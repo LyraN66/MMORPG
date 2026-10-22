@@ -18,8 +18,10 @@ import { Game } from './game.js';
 import { UI } from './ui.js';
 import { Input } from './input.js';
 import { initAudio } from './audio.js';
-import { CLASSES, GAME_NAME } from './data.js';
+import { CLASSES, GAME_NAME, ENEMIES, UNIQUES } from './data.js';
+import { monstersFor } from '../server/shared/rigs.js';
 import { loadSave, newSave, deleteSave, saveGame } from './save.js';
+import { activateMap } from './mapstate.js';
 import { Net, serverUrl, setServerUrl, DEFAULT_SERVER } from './net.js';
 
 const $ = (s) => document.querySelector(s);
@@ -114,6 +116,8 @@ function titleCamera(dt) {
 // ---------- menus ----------
 let chosen = 'knight';
 let needApk = null;
+let resume = null; try { resume = sessionStorage.getItem('kv-resume'); sessionStorage.removeItem('kv-resume'); } catch { /* ignore */ }
+let activeMap = null;
 function showTitle() {
   const save = loadSave();
   $('#title').classList.remove('hidden');
@@ -176,12 +180,12 @@ function openOnline(save) {
       await net.connect();
       if (cancelled) return;
       clearTimeout(slow); st.textContent = 'Vadiye giriliyor…';
-      await net.enter({ t: 'hello', proto: PROTOCOL, info: { name: save.name, cls: save.cls, lv: save.level } });
+      await net.enter({ t: 'hello', proto: PROTOCOL, map: save.map || 'vadi', info: { name: save.name, cls: save.cls, lv: save.level } });
       if (cancelled) { net.close(); return; }
       $('#lobby').classList.add('hidden');
       startGame(save, net);
       const others = net.peers.length;
-      ui.announce(others ? `🌍 Vadide ${others} oyuncu daha var` : '🌍 Çevrimiçi dünyaya girdin', 'skill');
+      ui.announce(others ? `🌍 ${activeMap.name} bölgesinde ${others} oyuncu daha var` : '🌍 Çevrimiçi dünyaya girdin', 'skill');
     } catch (e) {
       clearTimeout(slow); net.close();
       if (cancelled) return;
@@ -193,13 +197,18 @@ function openOnline(save) {
 }
 
 function startGame(save, net) {
+  if ((save.map || 'vadi') !== activeMap.id) { // the world on screen belongs to another map: restart there
+    saveGame(save, null); net?.close();
+    try { sessionStorage.setItem('kv-resume', net ? 'online' : 'solo'); } catch { /* ignore */ }
+    location.reload(); return;
+  }
   $('#title').classList.add('hidden'); $('#cselect').classList.add('hidden');
   clearPreview();
   game = new Game({ renderer, scene, camera, ui, input, save, quality, world, fx, net });
   input.onTap = (x, y) => game.handleTap(x, y);
   input.onKey = (k) => {
     if (k === ' ' || k === 'j') game.attackButton();
-    else if (k === '1' || k === '2' || k === '3') game.player.useSkill(+k - 1);
+    else if (k >= '1' && k <= String(game.player.cls.skills.length)) game.player.useSkill(+k - 1);
     else if (k === 'q') game.player.usePotion('hp');
     else if (k === 'e') game.player.usePotion('mp');
     else if (k === 'i' || k === 'b') ui.openInventory();
@@ -252,11 +261,15 @@ function loop(now) {
   document.title = GAME_NAME;
   resize();
   // Over-the-air update check (Android app only). If an update applies, the app restarts here.
+  if (resume) $('#loading .logo').innerHTML = `Işınlanılıyor…<small>${(await import('../server/shared/maps.js')).mapById(loadSave()?.map).name}</small>`;
   $('#loadtext').textContent = 'Güncelleme kontrol ediliyor…';
   needApk = await checkForUpdate((text, k) => { $('#loadtext').textContent = text; $('#loadbar i').style.width = Math.round(k * 100) + '%'; });
   $('#loadbar i').style.width = '0%'; $('#loadtext').textContent = 'Yükleniyor…';
+  const qs = new URLSearchParams(location.search);
+  if (qs.get('map')) { const sv = loadSave(); if (sv) { sv.map = qs.get('map'); saveGame(sv, null); } }
+  activeMap = activateMap(loadSave()?.map || qs.get('map') || 'vadi');
   try {
-    await loadAll((k) => { $('#loadbar i').style.width = Math.round(k * 90) + '%'; });
+    await loadAll((k) => { $('#loadbar i').style.width = Math.round(k * 90) + '%'; }, monstersFor(activeMap, ENEMIES, UNIQUES));
   } catch (e) {
     $('#loadtext').textContent = 'Yükleme hatası: ' + e.message; console.error(e); return;
   }
@@ -271,9 +284,17 @@ function loop(now) {
   renderer.compile(scene, camera);
   $('#loadbar i').style.width = '100%';
   requestAnimationFrame(loop);
-  setTimeout(() => { $('#loading').classList.add('done'); if (!game) showTitle(); }, 250);
+  setTimeout(() => {
+    $('#loading').classList.add('done');
+    const save = loadSave();
+    if (resume && save && !game) { // arrived through a portal
+      if (resume === 'online') { showTitle(); $('#title').classList.add('hidden'); openOnline(save); }
+      else startGame(save);
+      setTimeout(() => ui.announce(`🌀 ${activeMap.name}`, 'skill'), 800);
+    } else if (!game) showTitle();
+  }, 250);
   if (new URLSearchParams(location.search).has('autostart')) {
-    const s = loadSave() || newSave(new URLSearchParams(location.search).get('cls') || 'knight', 'Test');
+    const s = loadSave() || Object.assign(newSave(new URLSearchParams(location.search).get('cls') || 'knight', 'Test'), { map: activeMap.id });
     startGame(s);
   }
 })();

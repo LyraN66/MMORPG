@@ -5,6 +5,7 @@ import http from 'node:http';
 import { WebSocketServer } from 'ws';
 import { Sim } from './sim.js';
 import { PROTOCOL } from './shared/version.js';
+import { mapById } from './shared/maps.js';
 
 const PORT = process.env.PORT || 8080;
 const VERSION = (process.env.RENDER_GIT_COMMIT || 'dev').slice(0, 7);
@@ -19,7 +20,8 @@ const server = http.createServer((req, res) => {
   if (req.url === '/version' || req.url.startsWith('/v/')) { res.writeHead(200, cors); res.end(JSON.stringify({ version: VERSION })); return; }
   if (req.url === '/stats') {
     res.writeHead(200, cors);
-    res.end(JSON.stringify({ protocol: PROTOCOL, players: clients.size, names: [...sim.players.values()].map((p) => p.name), enemies: sim.enemies.size, version: VERSION }));
+    const maps = {}; for (const [id, sm] of sims) maps[id] = { players: [...sm.players.values()].map((p) => p.name), enemies: sm.enemies.size };
+    res.end(JSON.stringify({ protocol: PROTOCOL, players: clients.size, maps, version: VERSION }));
     return;
   }
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -28,11 +30,17 @@ const server = http.createServer((req, res) => {
 
 const raw = (ws, s) => { if (ws.readyState === 1) ws.send(s); };
 const sendTo = (id, msg) => { const ws = clients.get(id); if (ws) raw(ws, JSON.stringify({ ...msg, f: SERVER_ID })); };
-const broadcast = (msg, except) => {
+// Messages only go to players on the same map.
+const broadcast = (map, msg, except) => {
   const s = JSON.stringify({ ...msg, f: msg.f ?? SERVER_ID });
-  for (const [id, ws] of clients) if (id !== except) raw(ws, s);
+  for (const [id, ws] of clients) if (id !== except && ws.map === map) raw(ws, s);
 };
-const sim = new Sim({ send: sendTo, broadcast: (m) => broadcast(m) });
+// One simulation per map, created when the first player arrives.
+const sims = new Map();
+const simFor = (id) => {
+  if (!sims.has(id)) sims.set(id, new Sim({ map: mapById(id), send: sendTo, broadcast: (m) => broadcast(id, m) }));
+  return sims.get(id);
+};
 
 const wss = new WebSocketServer({ server, maxPayload: 64 * 1024 });
 
@@ -40,8 +48,8 @@ function leave(ws) {
   if (!ws.joined) return;
   ws.joined = false;
   clients.delete(ws.id);
-  sim.removePlayer(ws.id);
-  broadcast({ t: 'peerLeft', id: ws.id });
+  simFor(ws.map).removePlayer(ws.id);
+  broadcast(ws.map, { t: 'peerLeft', id: ws.id });
 }
 
 wss.on('connection', (ws) => {
@@ -57,20 +65,23 @@ wss.on('connection', (ws) => {
       if (m.proto !== PROTOCOL) { raw(ws, JSON.stringify({ t: 'error', msg: 'Oyunun yeni sürümü var. Uygulamayı kapatıp yeniden aç ya da en son APK\'yı kur — güncellemeden sonra girebilirsin.' })); return; }
       if (clients.size >= MAX_PLAYERS) { raw(ws, JSON.stringify({ t: 'error', msg: 'Dünya dolu, biraz sonra tekrar dene' })); return; }
       const info = { name: String(m.info?.name || 'Oyuncu').slice(0, 14), cls: m.info?.cls === 'mage' ? 'mage' : 'knight', lv: +m.info?.lv || 1 };
+      ws.map = mapById(m.map).id;
       ws.info = info; ws.joined = true;
-      const peers = [...clients.entries()].map(([id, c]) => ({ id, info: c.info }));
+      const peers = [...clients.entries()].filter(([, c]) => c.map === ws.map).map(([id, c]) => ({ id, info: c.info }));
       clients.set(ws.id, ws);
+      const sim = simFor(ws.map);
       sim.addPlayer(ws.id, info);
-      raw(ws, JSON.stringify({ t: 'joined', id: ws.id, host: SERVER_ID, code: 'world', peers, f: SERVER_ID }));
-      broadcast({ t: 'peerJoined', id: ws.id, info }, ws.id);
+      raw(ws, JSON.stringify({ t: 'joined', id: ws.id, host: SERVER_ID, code: ws.map, peers, f: SERVER_ID }));
+      broadcast(ws.map, { t: 'peerJoined', id: ws.id, info }, ws.id);
       sim.welcome(ws.id);
       return;
     }
     if (!ws.joined) return;
     m.f = ws.id;
+    const sim = simFor(ws.map);
     switch (m.t) {
-      case 'ps': sim.onState(ws.id, m); broadcast(m, ws.id); break; // own state → everyone
-      case 'act': broadcast(m, ws.id); break; // attack/skill visuals → everyone
+      case 'ps': sim.onState(ws.id, m); broadcast(ws.map, m, ws.id); break; // own state → same map
+      case 'act': broadcast(ws.map, m, ws.id); break; // attack/skill visuals → same map
       case 'dmg': sim.onDamage(ws.id, m); break;
       case 'pick': sim.onPick(ws.id, m.lid); break;
       default: break;
@@ -91,7 +102,7 @@ setInterval(() => {
 let last = Date.now();
 setInterval(() => {
   const now = Date.now(); const dt = Math.min(0.1, (now - last) / 1000); last = now;
-  try { sim.tick(dt); } catch (e) { console.error('sim error', e); }
+  for (const sim of sims.values()) { try { sim.tick(dt); } catch (e) { console.error('sim error', e); } }
 }, 50);
 
 server.listen(PORT, () => console.log(`Kemik Vadisi dünya sunucusu :${PORT} (sürüm ${VERSION})`));

@@ -130,6 +130,20 @@ export class FX {
     this.timedMesh(g, dur, (k) => { mat.uniforms.uK.value = k; });
   }
 
+  // Jagged lightning bolt between two points.
+  bolt(a, b, color = 0xbfe6ff, dur = 0.25) {
+    const pts = [], n = 9;
+    for (let i = 0; i <= n; i++) {
+      const k = i / n, j = i === 0 || i === n ? 0 : 0.55;
+      pts.push(new THREE.Vector3().lerpVectors(a, b, k).add(new THREE.Vector3((Math.random() - 0.5) * j, (Math.random() - 0.5) * j, (Math.random() - 0.5) * j)));
+    }
+    const geo = new THREE.BufferGeometry().setFromPoints(pts);
+    const mat = new THREE.LineBasicMaterial({ color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    const line = new THREE.Line(geo, mat);
+    this.timedMesh(line, dur, (k) => { mat.opacity = 1 - k; });
+    this.burst(b, 10, color, { speed: 5, up: 2, size: 0.35, life: 0.3 });
+  }
+
   groundRing(pos, { color = 0xffd27a, r0 = 0.5, r1 = 4, dur = 0.5, width = 0.35, opacity = 1 } = {}) {
     const geo = new THREE.RingGeometry(0.85, 1, 48);
     const mat = new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity, side: THREE.DoubleSide });

@@ -6,47 +6,97 @@ import { dist2d } from './units.js';
 import { sfx } from './audio.js';
 import { saveGame } from './save.js';
 
-import { OUTPOSTS } from '../server/shared/terrain.js';
+import { OUTPOSTS, ACTIVE_MAP } from '../server/shared/terrain.js';
+import { MAPS } from '../server/shared/maps.js';
 // Every outpost has a scout who hands out and accepts quests.
-export const GIVERS = OUTPOSTS.flatMap((o) => o.npcs.filter((n) => n.role === 'quest').map((n) => ({ name: n.name, pos: [n.x, n.z] })));
-export const GIVER = GIVERS[0];
+export let GIVERS = [], GIVER = null;
+// Called when the active map is chosen (before the game starts).
+export function useQuestMap() {
+  GIVERS = OUTPOSTS.flatMap((o) => o.npcs.filter((n) => n.role === 'quest').map((n) => ({ name: n.name, pos: [n.x, n.z] })));
+  GIVER = GIVERS[0];
+}
+useQuestMap();
 export const nearestGiver = (x, z) => GIVERS.reduce((a, g) => (Math.hypot(g.pos[0] - x, g.pos[1] - z) < Math.hypot(a.pos[0] - x, a.pos[1] - z) ? g : a));
 
 // Main story chain, handed out one at a time by Gözcü Kaan.
 export const QUESTS = [
-  { id: 'q1', lv: 1, type: 'kill', target: 'minion', count: 6, name: 'Kemiklerin Uyanışı',
+  { id: 'q1', map: 'vadi', lv: 1, type: 'kill', target: 'minion', count: 6, name: 'Kemiklerin Uyanışı',
     story: 'Ormandaki eski mezarlar açıldı, ölüler yürüyor. Kampa ulaşmadan önce 6 Kemik Er\'i toprağa geri gönder.',
     done: 'İyi iş! Kılıcın keskin, yüreğin sağlam. Vadinin sana ihtiyacı var.', xpk: 0.9, gold: 40, potions: { hp: 3 } },
-  { id: 'q2', lv: 2, type: 'collect', item: 'Altın Balkabağı', prop: 'pumpkin_yellow', scale: 0.75, count: 5, area: [14, 50], name: 'Ormanın Altını',
+  { id: 'q2', map: 'vadi', lv: 2, type: 'collect', item: 'Altın Balkabağı', prop: 'pumpkin_yellow', scale: 0.75, count: 5, area: [14, 50], name: 'Ormanın Altını',
     story: 'Solgun Orman\'da parlayan altın balkabakları lanete karşı iksir yapımında kullanılır. Bana 5 tane getir.',
     done: 'Kokusu bile insanı iyileştiriyor! Zerrin bunlarla iksir kaynatacak.', xpk: 0.7, gold: 50, potions: { hp: 2, mp: 2 } },
-  { id: 'q3', lv: 3, type: 'drop', item: 'Kemik Tozu', icon: 'bone_A', from: ['minion', 'rogue'], chance: 0.55, count: 8, name: 'Kemik Tozu',
+  { id: 'q3', map: 'vadi', lv: 3, type: 'drop', item: 'Kemik Tozu', icon: 'bone_A', from: ['minion', 'rogue'], chance: 0.55, count: 8, name: 'Kemik Tozu',
     story: 'İskeletlerin kemiklerindeki tozla laneti çözebiliriz. Ormandaki iskeletlerden 8 avuç Kemik Tozu topla.',
     done: 'Bu toz hâlâ sıcak… Lanet sandığımızdan da güçlü.', xpk: 0.7, gold: 70, gear: 1 },
-  { id: 'q4', lv: 4, type: 'kill', target: 'rogue', count: 8, name: 'Haydut Avı',
+  { id: 'q4', map: 'vadi', lv: 4, type: 'kill', target: 'rogue', count: 8, name: 'Haydut Avı',
     story: 'Kemik Haydutlar orman ile mezarlık arasındaki yolu kesiyor. 8 tanesini temizle.',
     done: 'Yol artık güvende. Tüccarlar sana minnettar kalacak.', xpk: 0.7, gold: 90 },
-  { id: 'q5', lv: 5, type: 'collect', item: 'Ruh Mumu', prop: 'candle_triple', scale: 1.3, count: 5, area: [-30, 6], name: 'Ruh Mumları',
+  { id: 'q5', map: 'vadi', lv: 5, type: 'collect', item: 'Ruh Mumu', prop: 'candle_triple', scale: 1.3, count: 5, area: [-30, 6], name: 'Ruh Mumları',
     story: 'Kırık Mezarlık\'ta hâlâ yanan ruh mumları var. Onları getir; tapınağın yolunu aydınlatacaklar.',
     done: 'Alevleri mavi yanıyor… Ruhlar sana yol gösterecek.', xpk: 0.6, gold: 110, potions: { mp: 3 } },
-  { id: 'q6', lv: 6, type: 'drop', item: 'Kırık Asa', icon: 'staff', from: ['mage'], chance: 0.6, count: 5, name: 'Kâhinlerin Asaları',
+  { id: 'q6', map: 'vadi', lv: 6, type: 'drop', item: 'Kırık Asa', icon: 'staff', from: ['mage'], chance: 0.6, count: 5, name: 'Kâhinlerin Asaları',
     story: 'Kemik Kâhinler karanlık güçlerini asalarından alıyor. Bana 5 asa parçası getir ki onları yakalım.',
     done: 'Asalar kırıldıkça kâhinler zayıflayacak. Çok iyi.', xpk: 0.6, gold: 140, gear: 1 },
-  { id: 'q7', lv: 7, type: 'boss', target: 'gorran', count: 1, name: 'Çürük Kral',
+  { id: 'q7', map: 'vadi', lv: 7, type: 'boss', target: 'gorran', count: 1, name: 'Çürük Kral',
     story: 'Mezarlığın efendisi Çürük Kral Gorran uyandı. Onu yen ve vadiye nefes aldır. Dikkat et: sıçrar, döner ve ölüleri çağırır.',
     done: 'Gorran düştü! Şarkılar senin adını söyleyecek, kahraman.', xpk: 1.1, gold: 300, gear: 2 },
-  { id: 'q8', lv: 8, type: 'kill', target: 'warrior', count: 8, name: 'Tapınak Muhafızları',
+  { id: 'q8', map: 'vadi', lv: 8, type: 'kill', target: 'warrior', count: 8, name: 'Tapınak Muhafızları',
     story: 'Kemik Tapınağı\'nın kapısını Kemik Muhafızlar tutuyor. 8 tanesini yık ki içeri girebilelim.',
     done: 'Kapı aralandı. İçeriden gelen soğuğu buradan hissediyorum.', xpk: 0.6, gold: 220 },
-  { id: 'q9', lv: 10, type: 'collect', item: 'Lanetli Kafatası', prop: 'skull', scale: 0.75, count: 6, area: [-82, -36], name: 'Lanetli Kafatasları',
+  { id: 'q9', map: 'vadi', lv: 10, type: 'collect', item: 'Lanetli Kafatası', prop: 'skull', scale: 0.75, count: 6, area: [-82, -36], name: 'Lanetli Kafatasları',
     story: 'Tapınağın etrafına saçılmış lanetli kafatasları Morvath\'a güç veriyor. 6 tanesini topla.',
     done: 'Morvath artık eskisi kadar güçlü değil. Sıra onda.', xpk: 0.6, gold: 300, potions: { hp: 4, mp: 4 } },
-  { id: 'q10', lv: 12, type: 'boss', target: 'morvath', count: 1, name: 'Kemik Lordu',
+  { id: 'q10', map: 'vadi', lv: 12, type: 'boss', target: 'morvath', count: 1, name: 'Kemik Lordu',
     story: 'Her şeyin kaynağı Kemik Lordu Morvath. Tapınağın kalbine gir ve laneti sonsuza dek bitir.',
     done: 'Başardın… Vadi yeniden nefes alıyor. Ama ölüler kolay pes etmez; sözleşmeler hâlâ seni bekliyor.', xpk: 1.3, gold: 1000, gear: 3 },
 ];
 
-const TYPE_NAMES = { minion: 'Kemik Er', rogue: 'Kemik Haydut', warrior: 'Kemik Muhafız', mage: 'Kemik Kâhin' };
+// Story chains of maps 2–8 follow one plan; each map supplies its own intro, items and ending.
+const STORIES = {
+  bataklik: { intro: 'Bataklıktan yükselen zehirli sis köyleri boğuyor.', end: 'Miselyum çürüdü, sis dağılıyor. Bataklık yeniden nefes alıyor!',
+    c0: ['Zehirli Kabak', 'pumpkin_orange_jackolantern', 0.8, 'panzehir yapımında kullanılıyor'], d1: ['Yapışkan Öz', 'bone_A'], c2: ['Bataklık Feneri', 'lantern_standing', 0.9, 'göl üstündeki sisi yarabiliyorlar'], d3: ['Kurbağa Zehri', 'staff'], c4: ['Spor Taşı', 'rock_single_C', 2.2] },
+  col: { intro: 'Kum fırtınaları kervanları yutuyor, çölde bir şeyler uyandı.', end: 'Monkrus düştü! Güneş Sunağı artık sadece güneşe tapıyor.',
+    c0: ['Kayıp Sikke', 'coin_stack_large', 0.7, 'kervanın kayıp hazinesinden kalmış'], d1: ['Kaktüs Özü', 'bone_A'], c2: ['Kervan Sandığı', 'chest', 0.8, 'içlerinde kervanın erzakı var'], d3: ['Şaman Asası', 'staff'], c4: ['Güneş Mumu', 'candle_triple', 1.3] },
+  buzul: { intro: 'Zirveden inen ayaz her gece biraz daha aşağı iniyor.', end: 'Yortun buzlara gömüldü. Bahar ilk kez zirveye ulaşacak!',
+    c0: ['Donmuş Kafatası', 'skull', 0.75, 'eski kaşiflerden kalan izler'], d1: ['Beyaz Post', 'bone_A'], c2: ['Buz Kristali', 'rock_single_E', 1.8, 'ayazın gücünü içlerinde tutuyorlar'], d3: ['Alpaka Yünü', 'staff'], c4: ['Kayıp Erzak', 'barrel_small_stack', 0.8] },
+  volkan: { intro: 'Ork klanları dağın ateşini uyandırdı; kül yağmuru dinmiyor.', end: 'Azgar küle döndü! Ateş dağı yeniden uykuya dalıyor.',
+    c0: ['Kor Taşı', 'rock_single_A', 1.8, 'demircilerin en sevdiği yakıt'], d1: ['Ork Dişi', 'bone_A'], c2: ['Ork Fıçısı', 'keg_decorated', 0.9, 'içlerindeki ateş barutu tehlikeli'], d3: ['Lav Çekirdeği', 'staff'], c4: ['Kül Kafatası', 'skull', 0.8] },
+  kiyi: { intro: 'Batık tapınaktan gelen şarkı denizcileri derinlere çekiyor.', end: 'Rex derinliklere geri döndü! Gemiler yeniden yelken açabilir.',
+    c0: ['Batık Sandık', 'chest_gold', 0.8, 'dalgalar onları kıyıya vurdu'], d1: ['Parlak Pul', 'bone_A'], c2: ['Kıyı Feneri', 'lantern_standing', 0.9, 'kayalıklarda yolumuzu bulmamızı sağlarlar'], d3: ['Mürekkep Kesesi', 'staff'], c4: ['Kadim Sikke', 'coin_stack_large', 0.7] },
+  hayalet: { intro: 'Sisli ormanda ölüler huzur bulamıyor; ruhlar yolcuları kandırıyor.', end: 'Vorgath\'ın kapısı kapandı. Ruhlar sonunda huzura kavuştu.',
+    c0: ['Ruh Feneri', 'post_lantern', 0.8, 'kayıp ruhlara yol gösteriyorlar'], d1: ['Ruh Parçası', 'candle_triple'], c2: ['Mezar Mumu', 'shrine_candles', 0.9, 'hayaletleri uzak tutuyorlar'], d3: ['Lanetli Kafatası', 'skull'], c4: ['Kemik Kafes', 'ribcage', 1] },
+  ejder: { intro: 'Ejder Kral Ignarok uyandı; gökyüzü alevle kızarıyor. Son savaş yaklaşıyor.', end: 'Ignarok düştü! Efsanen bütün diyarlarda anlatılacak, kahraman.',
+    c0: ['Ejder Altını', 'coin_stack_large', 0.7, 'ejderin hazinesinden saçılmış'], d1: ['Ejder Pulu', 'bone_A'], c2: ['Ejder Yumurtası', 'pumpkin_yellow', 0.9, 'kötü ellere düşmemeli'], d3: ['Yıldız Tozu', 'staff'], c4: ['Kadim Rün', 'plaque_candles', 1] },
+};
+for (const m of MAPS) {
+  const S = STORIES[m.id]; if (!S) continue;
+  const N = (k) => ENEMIES[m.mobs[k]].name, [mid, fin] = m.uniques.map((u) => UNIQUES[u]);
+  const z = m.zones.map((x) => x.name), L = m.lv[0], q = (i, o) => QUESTS.push({ id: `${m.id}${i}`, map: m.id, ...o });
+  q(1, { lv: L, type: 'kill', target: m.mobs.a, count: 8, name: `${z[1]} Sınırı`, xpk: 0.9, gold: 13 * L, potions: { hp: 4 },
+    story: `${S.intro} Önce kampın çevresindeki ${N('a')} sürülerini dağıt: 8 tane yeter.`, done: `Güzel başlangıç. ${z[1]} adını öğrenmeye başladı bile.` });
+  q(2, { lv: L + 1, type: 'collect', item: S.c0[0], prop: S.c0[1], scale: S.c0[2], count: 5, area: [14, 50], name: S.c0[0], xpk: 0.7, gold: 15 * L, potions: { hp: 2, mp: 2 },
+    story: `${z[1]} içinde ${S.c0[0]} bulunuyor; ${S.c0[3]}. Bana 5 tane getir.`, done: 'Tam ihtiyacımız olan şey. Tüccarımız bunlarla iyi iş çıkaracak.' });
+  q(3, { lv: L + 2, type: 'drop', item: S.d1[0], icon: S.d1[1], from: [m.mobs.a, m.mobs.c], chance: 0.55, count: 8, name: S.d1[0], xpk: 0.7, gold: 16 * L, gear: 1,
+    story: `${N('a')} ve ${N('c')} yaratıkları ${S.d1[0]} taşıyor. 8 tane topla; laneti çözmemize yarayacak.`, done: 'Bunlar hâlâ titriyor… Kötülüğün kaynağı daha derinde.' });
+  q(4, { lv: L + 3, type: 'kill', target: m.mobs.c, count: 10, name: `${N('c')} Avı`, xpk: 0.7, gold: 18 * L,
+    story: `${N('c')} grupları karakola giden yolu kesiyor. 10 tanesini temizle.`, done: 'Yol açıldı; karakoldakiler sana selam yolluyor.' });
+  q(5, { lv: L + 4, type: 'collect', item: S.c2[0], prop: S.c2[1], scale: S.c2[2], count: 5, area: [-30, 6], name: S.c2[0], xpk: 0.6, gold: 20 * L, potions: { mp: 4 },
+    story: `${z[2]} bölgesinde ${S.c2[0]} var; ${S.c2[3]}. 5 tane getir.`, done: 'Harika! Bunlar ileride hayatımızı kurtaracak.' });
+  q(6, { lv: L + 5, type: 'drop', item: S.d3[0], icon: S.d3[1], from: [m.mobs.d], chance: 0.6, count: 5, name: S.d3[0], xpk: 0.6, gold: 21 * L, gear: 1,
+    story: `${N('d')} uzaktan saldırıyor ve gücünü ${S.d3[0]} ile topluyor. 5 tane getir ki onları zayıflatalım.`, done: 'Güçleri azaldı. Şimdi sıra büyük düşmanda.' });
+  q(7, { lv: mid.level - 1, type: 'boss', target: mid.id, count: 1, name: mid.name,
+    story: `${mid.zone} derinlerinde ${mid.name} uyandı. Onu yen! Dikkat et: sıçrar, döner ve yardımcılarını çağırır.`, done: `${mid.name} düştü! Bütün karakol senin adını konuşuyor.`, xpk: 1.1, gold: 40 * L, gear: 2 });
+  q(8, { lv: mid.level + 1, type: 'kill', target: m.mobs.b, count: 10, name: `${z[3]} Kapısı`, xpk: 0.6, gold: 26 * L,
+    story: `${z[3]} kapısını ${N('b')} sürüleri tutuyor. 10 tanesini yık ki içeri girebilelim.`, done: 'Kapı aralandı. İçeriden gelen gücü buradan hissediyorum.' });
+  q(9, { lv: m.lv[1] - 3, type: 'collect', item: S.c4[0], prop: S.c4[1], scale: S.c4[2], count: 6, area: [-82, -36], name: S.c4[0], xpk: 0.6, gold: 33 * L, potions: { hp: 5, mp: 5 },
+    story: `${z[3]} çevresine saçılmış ${S.c4[0]} ${fin.name}'a güç veriyor. 6 tane topla.`, done: `${fin.name} artık eskisi kadar güçlü değil. Sıra onda.` });
+  q(10, { lv: m.lv[1] - 1, type: 'boss', target: fin.id, count: 1, name: fin.name, xpk: 1.3, gold: 100 * L, gear: 3,
+    story: `${fin.name} ${z[3]} kalbinde bekliyor. Bu diyarın kaderi senin elinde.`,
+    done: `${S.end}${MAPS.find((x) => x.order === m.order + 1) ? ' Kamptaki ışınlanma kapısı artık yeni bir diyara açılıyor!' : ''}` });
+}
+
+const TYPE_NAMES = new Proxy({}, { get: (_, k) => ENEMIES[k]?.name || String(k) });
 
 export function questReward(q, lv) {
   return { xp: Math.round(xpToNext(q.lv || lv) * q.xpk), gold: q.gold, potions: q.potions || null, item: q.gear ?? null };
@@ -61,18 +111,32 @@ export function objectiveText(q) {
 // Repeatable bounty scaled to the player's level.
 function makeBounty(lv, n) {
   const R = rng(lv * 977 + n * 131);
-  const pool = lv < 4 ? ['minion'] : lv < 6 ? ['minion', 'rogue'] : lv < 9 ? ['rogue', 'mage', 'minion'] : ['warrior', 'mage'];
+  // Monster types of this map that live near the player's level.
+  const types = [...new Set(CAMPS.filter((c) => c[4] <= lv + 2 && c[5] >= lv - 3).map((c) => c[2]))];
+  const pool = types.length ? types : [...new Set(CAMPS.map((c) => c[2]))];
   const target = pool[Math.floor(R() * pool.length)];
   const drop = R() < 0.4;
   const count = drop ? 6 : 8 + Math.floor(R() * 5);
   const base = { id: 'bounty', lv, count, xpk: 0.35 + count * 0.01, gold: Math.round(25 + lv * 18), potions: R() < 0.5 ? { hp: 2 } : { mp: 2 } };
+  const name = TYPE_NAMES[target];
   if (drop) {
-    const item = { minion: 'Paslı Künye', rogue: 'Haydut Hançeri', mage: 'Kâhin Mührü', warrior: 'Muhafız Nişanı' }[target];
-    return { ...base, type: 'drop', item, icon: target === 'mage' ? 'staff' : 'bone_A', from: [target], chance: 0.5, name: `Sözleşme: ${item}`,
-      story: `${TYPE_NAMES[target]}lerin taşıdığı ${item}lar lazım. ${count} tane getir, karşılığını cömertçe ödeyeceğim.` };
+    const item = ENEMIES[target]?.trophy || `${name} Nişanı`;
+    return { ...base, type: 'drop', item, icon: ENEMIES[target]?.ranged ? 'staff' : 'bone_A', from: [target], chance: 0.5, name: `Sözleşme: ${item}`,
+      story: `${name} türünün taşıdığı ${item} lazım. ${count} tane getir, karşılığını cömertçe ödeyeceğim.` };
   }
-  return { ...base, type: 'kill', target, minLv: Math.max(1, lv - 4), name: `Sözleşme: ${TYPE_NAMES[target]} Avı`,
-    story: `${TYPE_NAMES[target]}ler yine çoğaldı. Seviyene yakın ${count} tanesini öldür.` };
+  return { ...base, type: 'kill', target, minLv: Math.max(1, lv - 4), name: `Sözleşme: ${name} Avı`,
+    story: `${name} sürüleri yine çoğaldı. Seviyene yakın ${count} tanesini öldür.` };
+}
+
+// Quest chain of a map is finished when every quest of that map is done.
+export const chainDone = (save, mapId) => QUESTS.filter((q) => q.map === mapId).every((q) => save.quests?.done?.includes(q.id));
+// A map opens once the previous map's story is finished and the player is strong enough; visited maps stay open.
+export function mapLock(save, map) {
+  if (map.order === 1 || save.visited?.includes(map.id)) return null;
+  const prev = MAPS.find((m) => m.order === map.order - 1);
+  if (prev && !chainDone(save, prev.id)) return `${prev.name} hikâyesini bitir`;
+  if (save.level < map.lv[0]) return `Seviye ${map.lv[0]} gerekli`;
+  return null;
 }
 
 export class Quests {
@@ -87,8 +151,9 @@ export class Quests {
     this.syncNodes();
   }
 
-  get next() { return QUESTS.find((q) => !this.st.done.includes(q.id)) || null; }
-  get main() { return this.st.active ? QUESTS.find((q) => q.id === this.st.active) : null; }
+  get next() { return QUESTS.find((q) => q.map === ACTIVE_MAP.id && !this.st.done.includes(q.id)) || null; }
+  // A main quest from another map stays active but only progresses on its own map.
+  get main() { const q = this.st.active ? QUESTS.find((x) => x.id === this.st.active) : null; return q && q.map === ACTIVE_MAP.id ? q : null; }
   get mainDone() { const q = this.main; return !!q && this.st.prog >= q.count; }
   get bounty() { return this.st.bounty; }
   get bountyDone() { const b = this.st.bounty; return !!b && b.prog >= b.count; }
@@ -98,7 +163,7 @@ export class Quests {
     if (this.mainDone || this.bountyDone) return '?';
     const n = this.next;
     if (!this.st.active && n && n.lv <= this.g.save.level) return '!';
-    if (!this.st.bounty && this.st.done.includes('q1')) return '!';
+    if (!this.st.bounty && this.st.done.length) return '!';
     if (this.st.active || this.st.bounty) return '…';
     return '';
   }

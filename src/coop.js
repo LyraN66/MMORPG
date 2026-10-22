@@ -7,7 +7,6 @@ import { dist2d } from './units.js';
 import { Net } from './net.js';
 import { PROTOCOL } from '../server/shared/version.js';
 
-const TYPES = ['minion', 'rogue', 'warrior', 'mage'];
 const lerpAngle = (a, b, t) => { let d = b - a; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return a + d * t; };
 const r2 = (v) => Math.round(v * 100) / 100;
 
@@ -98,7 +97,7 @@ export class Coop {
       const net = new Net(url);
       try {
         await net.connect(60000);
-        await net.enter({ t: 'hello', proto: PROTOCOL, info: { name: g.save.name, cls: g.save.cls, lv: g.save.level } });
+        await net.enter({ t: 'hello', proto: PROTOCOL, map: g.save.map || 'vadi', info: { name: g.save.name, cls: g.save.cls, lv: g.save.level } });
         this.attach(net); this.reconnecting = false;
         g.ui.netBanner(null); g.ui.toast('🌍 Yeniden bağlandın', '#7dff9a'); g.ui.roomBadge();
         return;
@@ -121,13 +120,13 @@ export class Coop {
     if (this.remotes.has(id)) return this.remotes.get(id);
     const r = new RemotePlayer(this.g, id, info);
     this.remotes.set(id, r);
-    if (!quiet) { this.g.ui.toast(`🌍 ${r.name} vadiye girdi`, '#7dff9a'); sfx.pickup(); }
+    if (!quiet) { this.g.ui.toast(`🌍 ${r.name} bu diyara geldi`, '#7dff9a'); sfx.pickup(); }
     this.g.ui.roomBadge();
     return r;
   }
   removeRemote(id) {
     const r = this.remotes.get(id); if (!r) return;
-    this.g.ui.toast(`🌍 ${r.name} vadiden ayrıldı`, '#ffb38a');
+    this.g.ui.toast(`🌍 ${r.name} diyardan ayrıldı`, '#ffb38a');
     r.dispose(); this.remotes.delete(id);
     for (const e of this.g.enemies) if (e.tgt === r) e.tgt = null;
     this.g.ui.roomBadge();
@@ -164,7 +163,7 @@ export class Coop {
     for (const e of this.g.enemies) {
       if (!e.alive || !rs.some((r) => dist2d(r.pos, e.pos) < 45)) continue;
       const a = e.anim.current;
-      l.push([e.id, TYPES.indexOf(e.type), e.level, e.unique ? e.unique.id : '', r2(e.pos.x), r2(e.pos.y), r2(e.pos.z), r2(e.yaw),
+      l.push([e.id, e.type, e.level, e.unique ? e.unique.id : '', r2(e.pos.x), r2(e.pos.y), r2(e.pos.z), r2(e.yaw),
         Math.ceil(e.hp), e.maxHp, a?.name || 'Idle', e.anim.seq, a?.once ? 1 : 0, r2(a?.ts || 1),
         (e.enraged ? 1 : 0) | (e.slowT > 0 ? 2 : 0) | (e.stunT > 0 ? 4 : 0) | (e.summoned ? 8 : 0)]);
     }
@@ -177,7 +176,7 @@ export class Coop {
       let e = g.enemyById.get(r[0]);
       if (!e) {
         const uq = r[3] ? UNIQUES[r[3]] : null;
-        e = g.spawnEnemy(TYPES[r[1]], r[2], new THREE.Vector3(r[4], 0, r[6]), uq, { id: r[0], remote: true });
+        e = g.spawnEnemy(r[1], r[2], new THREE.Vector3(r[4], 0, r[6]), uq, { id: r[0], remote: true });
         e.state = 'remote'; e.yaw = e.netYaw = r[7];
         if (uq) { const st = g.uniques.find((u) => u.def.id === uq.id); if (st) st.enemy = e; }
       }
@@ -294,6 +293,18 @@ export class Coop {
         g.later(1.1, () => g.meteorImpact(at, null));
         break;
       }
+      case 'quake':
+        g.later(0.42, () => { s(() => sfx.heavySwing()); const f = new THREE.Vector3(Math.sin(r.yaw), 0, Math.cos(r.yaw)); for (let k = 1; k <= 4; k++) fx.groundRing(r.pos.clone().addScaledVector(f, k * 1.7), { color: 0xffa04a, r0: 0.4, r1: 1.2 + k * 0.5, dur: 0.45 }); });
+        break;
+      case 'bladestorm':
+        for (let k = 0; k < 6; k++) g.later(k * 0.5, () => { fx.groundRing(r.pos, { color: 0xc8e6ff, r0: 1, r1: 4.2, dur: 0.35 }); for (let a = 0; a < 4; a++) fx.slash(r.pos, k * 0.8 + a * Math.PI / 2, 0xdff1ff, { radius: 3.4, width: 0.7, dur: 0.22 }); });
+        break;
+      case 'chain':
+        g.later(0.25, () => { if (tgt) { s(() => sfx.magic()); fx.bolt(from(), tgt.pos.clone().setY(tgt.pos.y + 1.2), 0xbfe6ff, 0.3); } });
+        break;
+      case 'blackhole':
+        if (m.tx != null) g.later(0.4, () => g.blackHole(new THREE.Vector3(m.tx, heightAt(m.tx, m.tz), m.tz), null));
+        break;
       default: break;
     }
   }

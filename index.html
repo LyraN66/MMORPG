@@ -33,7 +33,7 @@
       <button class="btn big ghost" id="t-continue">Devam Et</button>
       <button class="btn big ghost" id="t-new">Oyuna Başla</button>
     </div>
-    <div class="credit">Grafikler: KayKit (CC0) · Prototip v0.1</div>
+    <div class="credit">Grafikler: KayKit &amp; Quaternius (CC0)</div>
   </div>
 
   <!-- Class select -->
@@ -118,7 +118,7 @@
   <!-- Online connect -->
   <div id="lobby" class="modal hidden"><div class="panel small">
     <div class="ph"><h3>🌍 Çevrimiçi Dünya</h3><button class="close" id="lobby-x">✕</button></div>
-    <p class="lhint">Herkes aynı Kemik Vadisi'ne girer. Kendi karakterinle oynarsın; moblar, boss'lar ve yere düşen ganimet ortaktır (ilk alan kapar).</p>
+    <p class="lhint">Herkes kendi bulunduğu haritanın ortak dünyasına girer. Kendi karakterinle oynarsın; moblar, boss'lar ve yere düşen ganimet ortaktır (ilk alan kapar).</p>
     <div class="lstatus" id="l-status"></div>
     <div class="lrow"><button class="btn hidden" id="l-retry">Tekrar Dene</button></div>
     <details><summary>Sunucu ayarı</summary><input id="l-server" autocomplete="off" spellcheck="false" /></details>
@@ -138,6 +138,13 @@
     <div id="questbody"></div>
   </div></div>
 
+  <!-- Portal -->
+  <div id="portal" class="modal hidden"><div class="panel small">
+    <div class="ph"><h3>🌀 Işınlanma Kapısı</h3><button class="close">✕</button></div>
+    <p class="npcsay" id="portalnote"></p>
+    <div id="portallist"></div>
+  </div></div>
+
   <!-- Map -->
   <div id="map" class="modal hidden"><div class="panel map">
     <div class="ph"><h3>🗺️ Kemik Vadisi</h3><button class="close">✕</button></div>
@@ -153,7 +160,7 @@
       <button class="btn ghost" id="fpsbtn"></button>
       <button class="btn ghost" id="perf"></button>
       <p id="qnote" class="hidden warn">Grafik ayarı yeniden açılışta uygulanır.</p>
-      <div class="help"><b>Kontroller</b><br>Mobil: sol tarafta joystick, düşmana dokun = hedefle, yere dokun = yürü, iki parmak = yakınlaştır.<br>PC: WASD / tıkla-yürü, Boşluk = saldır, 1-2-3 = yetenek, Q/E = iksir, F = etkileşim, M = harita, I = çanta, tekerlek = zoom.<br>Mini haritaya dokunarak büyük haritayı açabilirsin.</div>
+      <div class="help"><b>Kontroller</b><br>Mobil: sol tarafta joystick, düşmana dokun = hedefle, yere dokun = yürü, iki parmak = yakınlaştır.<br>PC: WASD / tıkla-yürü, Boşluk = saldır, 1-5 = yetenek, Q/E = iksir, F = etkileşim, M = harita, I = çanta, tekerlek = zoom.<br>Mini haritaya dokunarak büyük haritayı açabilirsin.</div>
       <button class="btn" id="tomenu">Ana Menü</button>
     </div>
   </div></div>
