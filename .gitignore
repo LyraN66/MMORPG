@@ -6,3 +6,4 @@ android/build/
 *.log
 .DS_Store
 server/node_modules/
+server/data/

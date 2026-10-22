@@ -133,7 +133,7 @@ export class Game {
     this.fx.burst(p.pos.clone().setY(p.pos.y + 1), 90, 0x9fe8ff, { speed: 7, up: 8, size: 0.45, life: 1.2, grav: -1 });
     s.map = mapId; s.pos = null; s.hp = null;
     s.visited = [...new Set([...(s.visited || []), ACTIVE_MAP.id, mapId])];
-    saveGame(s, null);
+    saveGame(s, null, true);
     try { sessionStorage.setItem('kv-resume', this.coop ? 'online' : 'solo'); } catch { /* ignore */ }
     setTimeout(() => { this.coop?.net.close(); location.reload(); }, 1100);
   }

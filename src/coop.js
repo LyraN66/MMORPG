@@ -6,6 +6,8 @@ import { sfx } from './audio.js';
 import { dist2d } from './units.js';
 import { Net } from './net.js';
 import { PROTOCOL } from '../server/shared/version.js';
+import { account, authenticate } from './account.js';
+import { setRemoteSaver } from './save.js';
 
 const lerpAngle = (a, b, t) => { let d = b - a; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return a + d * t; };
 const r2 = (v) => Math.round(v * 100) / 100;
@@ -81,6 +83,7 @@ export class Coop {
     this.g.player.netId = net.id;
     net.onMessage = (m) => this.onMessage(m);
     net.onClose = () => this.reconnect();
+    setRemoteSaver((s, now) => this.net.send({ t: 'save', s, now }));
     for (const p of net.peers) this.addRemote(p.id, p.info, true);
   }
   // Connection dropped (phone switched apps, server restarted…): rejoin the world automatically.
@@ -97,13 +100,14 @@ export class Coop {
       const net = new Net(url);
       try {
         await net.connect(60000);
-        await net.enter({ t: 'hello', proto: PROTOCOL, map: g.save.map || 'vadi', info: { name: g.save.name, cls: g.save.cls, lv: g.save.level } });
+        await authenticate(net, 'token', { token: account.token, remember: account.remember });
+        await net.enter({ t: 'hello', proto: PROTOCOL, map: g.save.map || 'vadi' });
         this.attach(net); this.reconnecting = false;
         g.ui.netBanner(null); g.ui.toast('🌍 Yeniden bağlandın', '#7dff9a'); g.ui.roomBadge();
         return;
       } catch (e) {
         net.close();
-        if (/güncel/i.test(e.message)) { this.reconnecting = false; this.lost(e.message); return; }
+        if (/güncel|oturum/i.test(e.message)) { this.reconnecting = false; this.lost(e.message); return; }
       }
     }
     this.reconnecting = false;
@@ -204,6 +208,7 @@ export class Coop {
         break;
       }
       case 'peerLeft': this.removeRemote(m.id); break;
+      case 'kicked': this.lost(m.msg); break;
       case 'closed': this.lost('Odayı kuran oyuncu oyundan ayrıldı.'); break;
       case 'ps': {
         const r = this.remotes.get(m.f) || this.addRemote(m.f, { name: m.nm, cls: 'knight' }, true);

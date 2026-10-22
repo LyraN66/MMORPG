@@ -338,3 +338,17 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 @media (max-width: 560px) { #equip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .maptip { font-size: 11.5px; opacity: .75; margin: 0 0 6px; }
 .lg .btn.mini { padding: 3px 8px; font-size: 11.5px; }
+
+/* ---------- login ---------- */
+#login { justify-content: space-between; background: linear-gradient(180deg, rgba(5,6,12,.55), transparent 30%, rgba(5,6,12,.5) 55%, rgba(5,6,12,.9)); }
+#login .logo { margin-top: 5vh; }
+.lbox { display: flex; flex-direction: column; gap: 8px; width: min(360px, calc(100% - 32px)); background: rgba(10,9,16,.82); border: 1px solid var(--line); border-radius: 16px; padding: 14px; margin-bottom: 4vh; backdrop-filter: blur(4px); }
+.lbox input:not([type=checkbox]) { background: rgba(0,0,0,.5); border: 1px solid var(--line); color: #fff; border-radius: 10px; padding: 11px 12px; font-size: 16px; user-select: text; -webkit-user-select: text; }
+.ltabs { display: flex; gap: 6px; } .ltabs .tab { flex: 1; padding: 8px; border-radius: 10px; border: 1px solid #ffffff1c; background: #0006; color: #ccc; font: 700 13px var(--title); }
+.ltabs .tab.on { border-color: var(--gold); color: var(--gold2); background: rgba(217,181,107,.14); }
+.lrem { font-size: 13px; opacity: .85; display: flex; align-items: center; gap: 6px; }
+.lmsg { min-height: 18px; font-size: 13px; color: #ffb38a; } .lmsg.ok { color: #9fe8ff; }
+.lhint2 { font-size: 11px; opacity: .55; text-align: center; }
+#c-name { flex: 1; align-self: center; font: 700 15px var(--title); color: var(--gold2); }
+.tbtns.small { margin-bottom: 2vh; }
+@media (max-height: 440px) { #login .logo { display: none; } #login { justify-content: center; } .lbox { margin: 0; padding: 10px; gap: 6px; } .lbox input:not([type=checkbox]) { padding: 8px 10px; } }

@@ -20,9 +20,11 @@ import { Input } from './input.js';
 import { initAudio } from './audio.js';
 import { CLASSES, GAME_NAME, ENEMIES, UNIQUES, makeItem } from './data.js';
 import { monstersFor } from '../server/shared/rigs.js';
-import { loadSave, newSave, deleteSave, saveGame } from './save.js';
+import { loadSave, newSave, saveGame, cacheSave, legacySave, dropLegacy } from './save.js';
+import { account, authenticate, storedToken, forgetToken, logout } from './account.js';
+import { migrateSave } from './data.js';
 import { activateMap } from './mapstate.js';
-import { Net, serverUrl, setServerUrl, DEFAULT_SERVER } from './net.js';
+import { Net } from './net.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -135,29 +137,116 @@ async function titleUpdateCheck() {
   b.onclick = () => { b.disabled = true; runUpdate((t) => { b.innerHTML = t; b.disabled = false; }); };
 }
 addEventListener('visibilitychange', () => { if (!document.hidden) titleUpdateCheck(); });
+async function showUpdateButton(sel) {
+  const u = await peekUpdate().catch(() => null), b = $(sel); if (!b) return;
+  if (!u) { b.classList.add('hidden'); return; }
+  b.classList.remove('hidden');
+  b.innerHTML = u.kind === 'apk' ? '⬇️ Yeni sürüm var — APK\'yı indir' : `🔄 Yeni sürüm hazır — Güncelle <small>Sürüm 0.1.${u.info.web}</small>`;
+  b.onclick = () => { b.disabled = true; runUpdate((t) => { b.innerHTML = t; b.disabled = false; }); };
+}
 
 // ---------- menus ----------
+// Everyone plays online: log in (or register), pick a class for a new account, then enter the world.
 let chosen = 'knight';
 let needApk = null;
 let resume = null; try { resume = sessionStorage.getItem('kv-resume'); sessionStorage.removeItem('kv-resume'); } catch { /* ignore */ }
 let activeMap = null;
+let net = null, char = null;
+
+async function connectNet(say) {
+  if (net?.open) return net;
+  net?.close(); net = new Net();
+  const slow = setTimeout(() => say('Sunucu uyanıyor… (1 dakika kadar sürebilir)'), 4000);
+  try { await net.connect(); } finally { clearTimeout(slow); }
+  net.onClose = () => { if (!game) { net = null; } };
+  return net;
+}
+function hideScreens() { for (const id of ['#login', '#title', '#cselect']) $(id).classList.add('hidden'); $('#lobby').classList.add('hidden'); }
+
+function showLogin(msg = '', ok = false) {
+  hideScreens(); $('#login').classList.remove('hidden');
+  const m = $('#l-msg'); m.textContent = msg; m.className = 'lmsg' + (ok ? ' ok' : '');
+  let mode = 'login';
+  const setMode = (md) => {
+    mode = md;
+    document.querySelectorAll('#login .ltabs .tab').forEach((t) => t.classList.toggle('on', t.dataset.m === md));
+    $('#l-pass2').classList.toggle('hidden', md !== 'register');
+    $('#l-pass').autocomplete = md === 'register' ? 'new-password' : 'current-password';
+    $('#l-go').textContent = md === 'register' ? 'Kayıt Ol' : 'Giriş Yap';
+  };
+  document.querySelectorAll('#login .ltabs .tab').forEach((t) => (t.onclick = () => { m.textContent = ''; setMode(t.dataset.m); }));
+  setMode(mode);
+  $('#l-go').onclick = async () => {
+    initAudio();
+    const user = $('#l-user').value.trim(), pass = $('#l-pass').value, remember = $('#l-rem').checked;
+    if (mode === 'register' && pass !== $('#l-pass2').value) { m.className = 'lmsg'; m.textContent = 'Şifreler aynı değil.'; return; }
+    const go = $('#l-go'); go.disabled = true; m.className = 'lmsg ok'; m.textContent = 'Sunucuya bağlanılıyor…';
+    try {
+      await connectNet((t) => { m.textContent = t; });
+      m.textContent = mode === 'register' ? 'Hesap oluşturuluyor…' : 'Giriş yapılıyor…';
+      const r = await authenticate(net, mode, { user, pass, remember });
+      $('#l-pass').value = ''; $('#l-pass2').value = '';
+      afterAuth(r);
+    } catch (e) {
+      m.className = 'lmsg'; m.textContent = e.message;
+      if (/sürüm/i.test(e.message)) showUpdateButton('#t-update2');
+    } finally { go.disabled = false; }
+  };
+  showUpdateButton('#t-update2');
+}
+
+// Logged in: new accounts pick a class, others go to the title (or straight in after a portal/reload).
+function afterAuth(r) {
+  char = r.char ? migrateSave(r.char) : null;
+  if (!char) { showClassSelect(); return; }
+  cacheSave(char);
+  if ((char.map || 'vadi') !== activeMap.id) { // world on screen is another map
+    try { sessionStorage.setItem('kv-resume', 'online'); } catch { /* ignore */ }
+    location.reload(); return;
+  }
+  if (resume) { resume = null; enterWorld(); return; }
+  showTitle();
+}
+
 function showTitle() {
-  const save = loadSave();
+  hideScreens();
   $('#title').classList.remove('hidden');
-  $('#t-continue').classList.toggle('hidden', !save);
-  if (save) $('#t-continue').innerHTML = `Tek Başına Oyna <small>${save.name} · ${CLASSES[save.cls].name} · Sv.${save.level}</small>`;
-  if (save) $('#t-coop').innerHTML = `🌍 Çevrimiçi Oyna <small>Herkesle aynı vadide</small>`;
-  $('#t-new').textContent = save ? 'Yeni Karakter' : 'Oyuna Başla';
-  $('.credit').textContent = `Grafikler: KayKit & Quaternius (CC0) · Sürüm 0.1.${WEB_VERSION}`;
+  $('#t-play').innerHTML = `▶️ Oyna <small>${char.name} · ${CLASSES[char.cls].name} · Sv.${char.level}</small>`;
+  $('.credit').textContent = `${account.remember ? '' : ''}Grafikler: KayKit & Quaternius (CC0) · Sürüm 0.1.${WEB_VERSION}`;
   $('#t-apk').classList.toggle('hidden', !needApk);
   if (needApk) $('#t-apk').onclick = () => { window.location.href = needApk.apk; };
-  $('#t-continue').onclick = () => { initAudio(); startGame(save); };
-  $('#t-coop').classList.toggle('hidden', !save);
-  $('#t-coop').onclick = () => { initAudio(); openOnline(save); };
-  $('#t-new').onclick = () => { initAudio(); $('#title').classList.add('hidden'); showClassSelect(); };
+  $('#t-play').onclick = () => { initAudio(); enterWorld(); };
+  $('#t-logout').onclick = () => { logout(); net?.close(); net = null; char = null; showLogin('Çıkış yapıldı.', true); };
   titleUpdateCheck();
 }
+
+async function enterWorld() {
+  const st = $('#l-status'), retry = $('#l-retry');
+  hideScreens(); $('#lobby').classList.remove('hidden'); retry.classList.add('hidden'); $('#l-update').classList.add('hidden');
+  st.className = 'lstatus'; st.textContent = 'Dünyaya giriliyor…';
+  $('#lobby-x').onclick = () => { $('#lobby').classList.add('hidden'); showTitle(); };
+  try {
+    if (!net?.open) { // connection dropped while on the menu: log back in with the session token
+      await connectNet((t) => { st.textContent = t; });
+      await authenticate(net, 'token', { token: account.token, remember: account.remember });
+    }
+    await net.enter({ t: 'hello', proto: PROTOCOL, map: char.map || 'vadi' });
+    $('#lobby').classList.add('hidden');
+    startGame(char, net);
+    const others = net.peers.length;
+    ui.announce(others ? `🌍 ${activeMap.name} bölgesinde ${others} oyuncu daha var` : `🌍 ${activeMap.name}`, 'skill');
+  } catch (e) {
+    st.className = 'lstatus err'; st.textContent = e.message; retry.classList.remove('hidden');
+    retry.onclick = () => enterWorld();
+    if (/sürüm|güncel/i.test(e.message)) {
+      const ub = $('#l-update'); ub.classList.remove('hidden'); ub.disabled = false;
+      ub.onclick = () => { ub.disabled = true; runUpdate((t) => { st.className = 'lstatus'; st.textContent = t; ub.disabled = false; }); };
+    }
+  }
+}
+
 function showClassSelect() {
+  hideScreens();
   const box = $('#classes'); box.innerHTML = '';
   for (const c of Object.values(CLASSES)) {
     const el = document.createElement('div'); el.className = 'ccard' + (c.id === chosen ? ' sel' : '');
@@ -167,16 +256,26 @@ function showClassSelect() {
     el.onclick = () => { chosen = c.id; showClassSelect(); focusPreview(); };
     box.appendChild(el);
   }
+  $('#c-name').textContent = `Karakter: ${account.user}`;
   $('#cselect').classList.remove('hidden');
   focusPreview();
-  $('#c-back').onclick = () => { $('#cselect').classList.add('hidden'); showTitle(); };
-  $('#c-go').onclick = () => {
-    const name = $('#c-name').value.trim().slice(0, 14) || CLASSES[chosen].name;
-    if (loadSave() && !confirm('Mevcut karakterin silinecek. Emin misin?')) return;
-    deleteSave();
-    const s = newSave(chosen, name); saveGame(s);
-    startGame(s);
+  $('#c-back').onclick = () => { logout(); net?.close(); net = null; showLogin(); };
+  const create = async (s) => {
+    s.name = account.user;
+    const p = net.waitFor(['created', 'error']); net.send({ t: 'create', char: s });
+    try {
+      const r = await p; if (r.t === 'error') throw new Error(r.msg);
+      afterAuth({ char: r.char });
+    } catch (e) { ui.toast(e.message, '#ff6a6a'); }
   };
+  $('#c-go').onclick = () => create(newSave(chosen, account.user));
+  // A character from the old offline version on this phone can be moved into the new account once.
+  const old = legacySave(), ib = $('#c-import');
+  ib.classList.toggle('hidden', !old);
+  if (old) {
+    ib.innerHTML = `📲 Bu telefondaki karakteri aktar <small>${CLASSES[old.cls].name} · Sv.${old.level}</small>`;
+    ib.onclick = () => { dropLegacy(); create(old); };
+  }
 }
 function focusPreview() {
   for (const p of preview) {
@@ -186,48 +285,10 @@ function focusPreview() {
   }
 }
 
-// ---------- online world ----------
-function openOnline(save) {
-  const st = $('#l-status'), retry = $('#l-retry');
-  $('#l-server').value = serverUrl();
-  $('#lobby').classList.remove('hidden');
-  let cancelled = false, net = null;
-  $('#lobby-x').onclick = () => { cancelled = true; net?.close(); $('#lobby').classList.add('hidden'); };
-  const go = async () => {
-    const custom = $('#l-server').value.trim();
-    setServerUrl(custom && custom !== DEFAULT_SERVER ? custom : '');
-    net = new Net();
-    retry.classList.add('hidden'); $('#l-update').classList.add('hidden');
-    st.className = 'lstatus'; st.textContent = 'Sunucuya bağlanılıyor…';
-    const slow = setTimeout(() => { st.textContent = 'Sunucu uyanıyor… (ücretsiz sunucu bir süre boş kalınca uyur, 1 dakika kadar sürebilir)'; }, 4000);
-    try {
-      await net.connect();
-      if (cancelled) return;
-      clearTimeout(slow); st.textContent = 'Vadiye giriliyor…';
-      await net.enter({ t: 'hello', proto: PROTOCOL, map: save.map || 'vadi', info: { name: save.name, cls: save.cls, lv: save.level } });
-      if (cancelled) { net.close(); return; }
-      $('#lobby').classList.add('hidden');
-      startGame(save, net);
-      const others = net.peers.length;
-      ui.announce(others ? `🌍 ${activeMap.name} bölgesinde ${others} oyuncu daha var` : '🌍 Çevrimiçi dünyaya girdin', 'skill');
-    } catch (e) {
-      clearTimeout(slow); net.close();
-      if (cancelled) return;
-      st.className = 'lstatus err'; st.textContent = e.message; retry.classList.remove('hidden');
-      if (/sürüm|güncel/i.test(e.message)) {
-        const ub = $('#l-update'); ub.classList.remove('hidden'); ub.disabled = false;
-        ub.onclick = () => { ub.disabled = true; runUpdate((t) => { st.className = 'lstatus'; st.textContent = t; ub.disabled = false; }); };
-      }
-    }
-  };
-  retry.onclick = go;
-  go();
-}
-
 function startGame(save, net) {
   if ((save.map || 'vadi') !== activeMap.id) { // the world on screen belongs to another map: restart there
     saveGame(save, null); net?.close();
-    try { sessionStorage.setItem('kv-resume', net ? 'online' : 'solo'); } catch { /* ignore */ }
+    try { sessionStorage.setItem('kv-resume', 'online'); } catch { /* ignore */ }
     location.reload(); return;
   }
   $('#title').classList.add('hidden'); $('#cselect').classList.add('hidden');
@@ -245,7 +306,7 @@ function startGame(save, net) {
     else if (k === 'escape') ui.closeModal();
   };
   addEventListener('visibilitychange', () => { if (document.hidden) saveGame(game.save, game.player); });
-  addEventListener('pagehide', () => saveGame(game.save, game.player));
+  addEventListener('pagehide', () => saveGame(game.save, game.player, true));
 }
 
 // ---------- loop ----------
@@ -312,14 +373,24 @@ function loop(now) {
   renderer.compile(scene, camera);
   $('#loadbar i').style.width = '100%';
   requestAnimationFrame(loop);
-  setTimeout(() => {
+  setTimeout(async () => {
     $('#loading').classList.add('done');
-    const save = loadSave();
-    if (resume && save && !game) { // arrived through a portal
-      if (resume === 'online') { showTitle(); $('#title').classList.add('hidden'); openOnline(save); }
-      else startGame(save);
-      setTimeout(() => ui.announce(`🌀 ${activeMap.name}`, 'skill'), 800);
-    } else if (!game) showTitle();
+    if (game) return;
+    const tok = storedToken();
+    if (!tok) { showLogin(); return; }
+    // Remembered (or same-session) login: go straight in.
+    hideScreens(); $('#lobby').classList.remove('hidden'); $('#l-retry').classList.add('hidden'); $('#l-update').classList.add('hidden');
+    const st = $('#l-status'); st.className = 'lstatus'; st.textContent = resume ? 'Işınlanılıyor…' : 'Giriş yapılıyor…';
+    $('#lobby-x').onclick = () => { net?.close(); net = null; showLogin(); };
+    try {
+      await connectNet((t) => { st.textContent = t; });
+      afterAuth(await authenticate(net, 'token', tok));
+    } catch (e) {
+      if (e.relogin) { forgetToken(); showLogin(e.message); return; }
+      st.className = 'lstatus err'; st.textContent = e.message;
+      const rt = $('#l-retry'); rt.classList.remove('hidden'); rt.onclick = () => location.reload();
+      if (/sürüm|güncel/i.test(e.message)) { const ub = $('#l-update'); ub.classList.remove('hidden'); ub.onclick = () => runUpdate((t) => { st.className = 'lstatus'; st.textContent = t; }); }
+    }
   }, 250);
   if (new URLSearchParams(location.search).has('autostart')) {
     const s = loadSave() || Object.assign(newSave(new URLSearchParams(location.search).get('cls') || 'knight', 'Test'), { map: activeMap.id });

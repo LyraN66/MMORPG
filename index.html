@@ -30,11 +30,26 @@
     <div class="tbtns">
       <button class="btn big hidden" id="t-update"></button>
       <button class="btn big hidden" id="t-apk">⬇️ Yeni sürüm var — APK'yı indir<small>Bu güncelleme uygulamanın yeniden kurulmasını gerektiriyor</small></button>
-      <button class="btn big" id="t-coop">🌍 Çevrimiçi Oyna</button>
-      <button class="btn big ghost" id="t-continue">Devam Et</button>
-      <button class="btn big ghost" id="t-new">Oyuna Başla</button>
+      <button class="btn big" id="t-play">▶️ Oyna</button>
+      <button class="btn ghost" id="t-logout">Çıkış Yap</button>
     </div>
     <div class="credit">Grafikler: KayKit &amp; Quaternius (CC0)</div>
+  </div>
+
+  <!-- Login -->
+  <div id="login" class="hidden screen">
+    <div class="logo big">Kemik Vadisi<small>Lanetli topraklarda bir efsane</small></div>
+    <form class="lbox" id="l-form" autocomplete="on" onsubmit="return false">
+      <div class="ltabs"><button type="button" class="tab on" data-m="login">Giriş Yap</button><button type="button" class="tab" data-m="register">Kayıt Ol</button></div>
+      <input id="l-user" name="username" autocomplete="username" maxlength="14" placeholder="Kullanıcı adı" spellcheck="false" autocapitalize="off" />
+      <input id="l-pass" name="password" type="password" autocomplete="current-password" maxlength="64" placeholder="Şifre" />
+      <input id="l-pass2" class="hidden" type="password" autocomplete="new-password" maxlength="64" placeholder="Şifre (tekrar)" />
+      <label class="lrem"><input type="checkbox" id="l-rem" checked /> Beni hatırla</label>
+      <div class="lmsg" id="l-msg"></div>
+      <button class="btn big" id="l-go" type="submit">Giriş Yap</button>
+      <small class="lhint2">Kullanıcı adın oyundaki karakter adın olur.</small>
+    </form>
+    <div class="tbtns small"><button class="btn big hidden" id="t-update2"></button></div>
   </div>
 
   <!-- Class select -->
@@ -42,8 +57,9 @@
     <h2>Sınıfını Seç</h2>
     <div id="classes"></div>
     <div class="crow">
-      <input id="c-name" maxlength="14" placeholder="Karakter adı" autocomplete="off" />
-      <button class="btn ghost" id="c-back">Geri</button>
+      <div id="c-name"></div>
+      <button class="btn ghost" id="c-back">Çıkış</button>
+      <button class="btn ghost hidden" id="c-import"></button>
       <button class="btn" id="c-go">Maceraya Başla</button>
     </div>
   </div>
@@ -120,10 +136,9 @@
   <!-- Online connect -->
   <div id="lobby" class="modal hidden"><div class="panel small">
     <div class="ph"><h3>🌍 Çevrimiçi Dünya</h3><button class="close" id="lobby-x">✕</button></div>
-    <p class="lhint">Herkes kendi bulunduğu haritanın ortak dünyasına girer. Kendi karakterinle oynarsın; moblar, boss'lar ve yere düşen ganimet ortaktır (ilk alan kapar).</p>
+    <p class="lhint">Moblar, boss'lar ve yere düşen ganimet bu haritadaki herkesle ortaktır (ilk alan kapar).</p>
     <div class="lstatus" id="l-status"></div>
     <div class="lrow"><button class="btn hidden" id="l-update">🔄 Şimdi Güncelle</button><button class="btn hidden" id="l-retry">Tekrar Dene</button></div>
-    <details><summary>Sunucu ayarı</summary><input id="l-server" autocomplete="off" spellcheck="false" /></details>
   </div></div>
 
   <!-- Connection lost -->
