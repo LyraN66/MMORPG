@@ -34,13 +34,17 @@ export class RemotePlayer {
   get alive() { return !this.dead && !this.gone; }
   get isEnemy() { return false; }
   apply(m) {
+    this.heardT = this.game.time;
     this.netPos.set(m.x, m.y, m.z); this.netYaw = m.yw;
     if (this.fresh) { this.pos.copy(this.netPos); this.yaw = m.yw; this.fresh = false; this.root.visible = true; }
-    this.hp = m.hp; this.maxHp = m.mh; this.level = m.lv; this.def = m.df;
-    if (m.nm) this.name = m.nm;
-    this.title = m.tl || '';
-    if (!!m.sth !== this.sth) { this.sth = !!m.sth; for (const mm of this.ch.materials) { mm.transparent = this.sth; mm.opacity = this.sth ? 0.25 : 1; mm.depthWrite = !this.sth; } }
-    if ((m.mt || null) !== this.mountId) { this.mountId = m.mt || null; this.game.setMount(this, this.mountId); }
+    this.hp = m.hp;
+    if (m.mh != null) { // detail block (sent when it changes)
+      this.maxHp = m.mh; this.level = m.lv; this.def = m.df;
+      if (m.nm) this.name = m.nm;
+      this.title = m.tl || '';
+      if (!!m.sth !== this.sth) { this.sth = !!m.sth; for (const mm of this.ch.materials) { mm.transparent = this.sth; mm.opacity = this.sth ? 0.25 : 1; mm.depthWrite = !this.sth; } }
+      if ((m.mt || null) !== this.mountId) { this.mountId = m.mt || null; this.game.setMount(this, this.mountId); }
+    }
     this.netAnim = { name: m.an, seq: m.sq, once: !!m.on, ts: m.ts || 1 };
     const dead = !!m.dd;
     if (dead !== this.dead) {
@@ -159,7 +163,13 @@ export class Coop {
 
   update(dt) {
     this.sendT -= dt;
-    if (this.sendT <= 0) { this.sendT = 1 / 12; this.sendState(); }
+    // Own state: 10/s while moving or fighting, 2/s when standing still.
+    if (this.sendT <= 0) {
+      const p = this.g.player, moved = !this.lastSent || p.pos.distanceToSquared(this.lastSent) > 0.0025 || p.anim.seq !== this.lastSeq || p.anim.current?.name !== this.lastAnim;
+      if (moved || this.idleT <= 0) { this.sendState(); this.lastSent = p.pos.clone(); this.lastSeq = p.anim.seq; this.lastAnim = p.anim.current?.name; this.idleT = 0.5; }
+      this.sendT = 0.1;
+    }
+    this.idleT = (this.idleT || 0) - dt;
     for (const r of this.remotes.values()) r.update(dt);
     if (this.isHost) {
       this.snapT -= dt; if (this.snapT <= 0) { this.snapT = 0.1; this.sendSnapshot(); }
@@ -167,14 +177,20 @@ export class Coop {
     } else {
       // Enemies the host stopped sending (out of our range) are removed.
       for (const e of this.g.enemies) if (e.remote && e.alive && this.g.time - (e.seenT || 0) > 3) e.remove = true;
+      // Players we stopped hearing from walked out of range: hide them until they come back.
+      for (const r of this.remotes.values()) if (!r.fresh && this.g.time - (r.heardT ?? this.g.time) > 3) { r.fresh = true; r.root.visible = false; }
     }
   }
 
   sendState() {
     const p = this.g.player, a = p.anim.current;
-    this.send({ t: 'ps', x: r2(p.pos.x), y: r2(p.pos.y), z: r2(p.pos.z), yw: r2(p.yaw), hp: Math.ceil(p.hp), mh: p.maxHp, lv: p.level,
-      dd: p.dead ? 1 : 0, an: a?.name || 'Idle', sq: p.anim.seq, on: a?.once ? 1 : 0, ts: r2(a?.ts || 1), df: Math.round(p.effDef), nm: this.g.save.name,
-      mt: p.mountId || 0, tl: this.g.titleText(), sth: p.stealthT > 0 ? 1 : 0 });
+    const m = { t: 'ps', x: r2(p.pos.x), y: r2(p.pos.y), z: r2(p.pos.z), yw: r2(p.yaw), hp: Math.ceil(p.hp), dd: p.dead ? 1 : 0,
+      an: a?.name || 'Idle', sq: p.anim.seq, on: a?.once ? 1 : 0, ts: r2(a?.ts || 1) };
+    // Rarely changing details only when they change (or every 2 s for players who just came into view).
+    const info = { mh: p.maxHp, lv: p.level, df: Math.round(p.effDef), nm: this.g.save.name, cl: this.g.save.cls, mt: p.mountId || 0, tl: this.g.titleText(), sth: p.stealthT > 0 ? 1 : 0 };
+    const key = JSON.stringify(info);
+    if (key !== this.infoKey || this.g.time - (this.infoT || 0) > 2) { Object.assign(m, info); this.infoKey = key; this.infoT = this.g.time; }
+    this.send(m);
   }
 
   sendSnapshot() {
@@ -228,9 +244,12 @@ export class Coop {
       case 'kicked': this.lost(m.msg); break;
       case 'closed': this.lost('Odayı kuran oyuncu oyundan ayrıldı.'); break;
       case 'ps': {
-        const r = this.remotes.get(m.f) || this.addRemote(m.f, { name: m.nm, cls: 'knight' }, true);
+        const r = this.remotes.get(m.f) || this.addRemote(m.f, { name: m.nm, cls: m.cl || 'knight' }, true);
         r.apply(m); break;
       }
+      case 'pss': // batched states of nearby players
+        for (const s of m.l) { const r = this.remotes.get(s.f) || this.addRemote(s.f, { name: s.nm, cls: s.cl || 'knight' }, true); r.apply(s); }
+        break;
       case 'act': { const r = this.remotes.get(m.f); if (r) this.replayAct(r, m); break; }
       case 'es': if (!this.isHost && m.f === this.hostId) this.applySnapshot(m.l); break;
       case 'ut':

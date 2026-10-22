@@ -40,6 +40,7 @@ const keyOf = (name) => name.toLocaleLowerCase('tr');
 const online = new Map(); // uid -> ws (one session per account)
 const tries = new Map(); // ip -> { n, t } login attempts
 function limited(ip) {
+  if (process.env.NO_RATE_LIMIT) return false; // load tests only
   const now = Date.now(), r = tries.get(ip) || { n: 0, t: now };
   if (now - r.t > 60000) { r.n = 0; r.t = now; }
   r.n++; tries.set(ip, r);
@@ -100,6 +101,36 @@ const broadcast = (map, msg, except) => {
   const s = JSON.stringify({ ...msg, f: msg.f ?? SERVER_ID });
   for (const [id, ws] of clients) if (id !== except && ws.map === map) raw(ws, s);
 };
+// Interest management: per-player messages only go to players close enough to see them (+ duel foe).
+const near = (from, msg, r) => {
+  const s = JSON.stringify({ ...msg, f: msg.f ?? SERVER_ID }), r2 = r * r;
+  for (const [id, ws] of clients) {
+    if (id === from.id || ws.map !== from.map) continue;
+    const dx = (ws.px ?? 0) - (from.px ?? 0), dz = (ws.pz ?? 0) - (from.pz ?? 0);
+    if (dx * dx + dz * dz < r2 || ws.px == null) raw(ws, s);
+  }
+};
+// Player states go out in one batch per client every 100 ms: only players nearby, only when they changed;
+// far ones (30–70 m) at half rate. A player's detail block (name, level…) is re-sent every 2 s.
+setInterval(() => {
+  const now = Date.now();
+  for (const [, c] of clients) {
+    if (c.px == null) continue;
+    const seen = (c.psSeen ||= new Map()), l = [];
+    for (const [oid, o] of clients) {
+      if (oid === c.id || o.map !== c.map || !o.ps) continue;
+      const dx = o.px - c.px, dz = o.pz - c.pz, d2 = dx * dx + dz * dz;
+      if (d2 > 4900) continue;
+      const st = seen.get(oid) || { seq: -1, t: 0, info: 0 };
+      if (st.seq === o.psSeq) continue;
+      if (d2 > 900 && now - st.t < 190) continue;
+      const out = { ...o.ps, f: oid };
+      if (o.info && now - st.info > 2000) { Object.assign(out, { mh: o.info.mh, lv: o.info.lv, df: o.info.df, nm: o.info.nm, cl: o.info.cl, mt: o.info.mt, tl: o.info.tl, sth: o.info.sth }); st.info = now; }
+      delete out.t; st.seq = o.psSeq; st.t = now; seen.set(oid, st); l.push(out);
+    }
+    if (l.length) raw(c, JSON.stringify({ t: 'pss', l, f: SERVER_ID }));
+  }
+}, 100);
 // One simulation per map, created when the first player arrives.
 const sims = new Map();
 const simFor = (id) => {
@@ -164,8 +195,12 @@ wss.on('connection', (ws, req) => {
     m.f = ws.id;
     const sim = simFor(ws.map);
     switch (m.t) {
-      case 'ps': ws.hp = m.hp; ws.mh = m.mh; ws.lv = m.lv; sim.onState(ws.id, m); broadcast(ws.map, m, ws.id); break; // own state → same map
-      case 'act': broadcast(ws.map, m, ws.id); break; // attack/skill visuals → same map
+      case 'ps': {
+        ws.hp = m.hp; if (m.mh != null) { ws.mh = m.mh; ws.lv = m.lv; ws.info = { ...m }; } ws.px = m.x; ws.pz = m.z;
+        sim.onState(ws.id, m); ws.ps = m; ws.psSeq = (ws.psSeq || 0) + 1;
+        break; // forwarded in batches below
+      }
+      case 'act': near(ws, m, 50); break; // attack/skill visuals → players nearby
       case 'dmg': sim.onDamage(ws.id, m); break;
       case 'pick': sim.onPick(ws.id, m.lid); break;
       default: break;

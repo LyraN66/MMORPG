@@ -70,7 +70,8 @@ export class World {
     sun.castShadow = this.quality !== 'low';
     const sm = this.quality === 'high' ? 2048 : 1024;
     sun.shadow.mapSize.set(sm, sm);
-    const sc = sun.shadow.camera; sc.left = -28; sc.right = 28; sc.top = 28; sc.bottom = -28; sc.near = 1; sc.far = 120;
+    const ext = this.quality === 'high' ? 28 : 22;
+    const sc = sun.shadow.camera; sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 1; sc.far = 120;
     sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
     s.add(sun); s.add(sun.target);
     this.sun = sun;
@@ -149,6 +150,8 @@ export class World {
     for (const f of flames) this.addFlame(new THREE.Vector3(f.x, f.y, f.z), f.size, f.big, f.color);
     this.placements = P;
     this.propsGroup = buildInstancedProps(P);
+    // On phones only big props cast shadows; small clutter would double the draw calls for little gain.
+    if (this.quality !== 'high') for (const im of this.propsGroup.children) if (!/tree|pillar|crypt|wall_|arch|column|grave_|rubble_large/.test(im.name)) im.castShadow = false;
     this.scene.add(this.propsGroup);
     const SMALL = /bone|skull|ribcage|candle|coin|rock_single|stool|lantern_standing|pumpkin|plaque|shrine|coffin|gravemarker|barrel|crate|box_|keg|table|chest|torch/;
     this.chunks = [];
@@ -227,7 +230,7 @@ export class World {
   }
 
   buildGrass() {
-    const count = Math.round((this.quality === 'high' ? 14000 : 6000) * this.vis.grass);
+    const count = Math.round((this.quality === 'high' ? 14000 : 3800) * this.vis.grass);
     if (!count) return;
     const blade = new THREE.BufferGeometry();
     const v = [];

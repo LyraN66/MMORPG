@@ -29,6 +29,7 @@ export class Game {
     this.player.pos.copy(save.pos ? new THREE.Vector3(...save.pos) : this.campPos.clone().add(new THREE.Vector3(0, 0, -4)));
     this.world.resolve(this.player.pos, 0.5);
     this.camYawOffset = 0; this.camDist = 1; this.camPos = new THREE.Vector3();
+    this.drawDist = quality === 'high' ? 60 : 46;
     this.zone = null; this.saveT = 0;
     this.raycaster = new THREE.Raycaster();
     this.coop = net ? new Coop(this, net) : null;
@@ -633,7 +634,7 @@ export class Game {
     }
     for (const n of this.npcs) {
       if (!n.ch) continue;
-      const d = dist2d(n.pos, p.pos); n.ch.root.visible = d < 45;
+      const d = dist2d(n.pos, p.pos); n.ch.root.visible = d < 32;
       if (d < 45) n.an.update(dt);
       if (d < 6) n.ch.root.rotation.y = Math.atan2(p.pos.x - n.pos.x, p.pos.z - n.pos.z);
     }
@@ -697,8 +698,11 @@ export class Game {
       e.awake = busy || dn < 36;
       if (!e.awake) { if (e.root.visible) e.root.visible = false; continue; }
       SPH.center.set(e.pos.x, e.pos.y + 1.2 * e.scale, e.pos.z); SPH.radius = 2 * e.scale;
-      const onScreen = d < 60 && FRUSTUM.intersectsSphere(SPH);
+      const onScreen = d < this.drawDist && FRUSTUM.intersectsSphere(SPH);
       if (e.root.visible !== onScreen) e.root.visible = onScreen;
+      // Only nearby characters cast shadows (each one is several skinned meshes drawn again for the shadow).
+      const sh = onScreen && (d < 18 || e.isBoss);
+      if (e.shadowOn !== sh) { e.shadowOn = sh; e.root.traverse((o) => { if (o.isMesh && o !== e.hitbox) o.castShadow = sh; }); }
       e.animate = onScreen && (d < 20 || e.isBoss || (this.frame + e.id) % 2 === 0);
       e.update(dt);
     }

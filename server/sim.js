@@ -272,7 +272,8 @@ export class Sim {
   }
   onState(id, m) {
     const p = this.players.get(id); if (!p) return;
-    p.pos.x = m.x; p.pos.y = m.y; p.pos.z = m.z; p.dead = !!m.dd; p.stealth = !!m.sth; p.def = m.df || 5; p.level = m.lv || p.level; p.fresh = false;
+    p.pos.x = m.x; p.pos.y = m.y; p.pos.z = m.z; p.dead = !!m.dd; p.fresh = false;
+    if (m.mh != null) { p.stealth = !!m.sth; p.def = m.df || 5; p.level = m.lv || p.level; }
     if (m.nm) p.name = m.nm;
   }
   alivePlayers() { return [...this.players.values()].filter((p) => !p.dead && !p.fresh && !this.T.safeAt(p.pos.x, p.pos.z)); }
@@ -383,16 +384,22 @@ export class Sim {
     if (this.utT <= 0) { this.utT = 1; this.broadcast(this.utMsg()); }
   }
 
+  // Each player gets the enemies around them; enemies that haven't changed are only re-sent once a second.
   sendSnapshots(ps) {
+    const r1 = (v) => Math.round(v * 10) / 10;
     for (const p of ps) {
-      const l = [];
+      const l = [], seen = (p.seen ||= new Map()), now = this.time;
       for (const e of this.enemies.values()) {
         if (!e.alive || dist2d(p.pos, e.pos) > 45) continue;
-        l.push([e.id, e.type, e.level, e.unique ? e.unique.id : '', r2(e.pos.x), r2(e.pos.y), r2(e.pos.z), r2(e.yaw),
+        const row = [e.id, e.type, e.level, e.unique ? e.unique.id : '', r1(e.pos.x), r1(e.pos.y), r1(e.pos.z), r2(e.yaw),
           Math.ceil(e.hp), e.maxHp, e.anim.name, e.anim.seq, e.anim.once ? 1 : 0, r2(e.anim.ts),
-          (e.enraged ? 1 : 0) | (e.slowT > 0 ? 2 : 0) | (e.stunT > 0 ? 4 : 0) | (e.summoned ? 8 : 0)]);
+          (e.enraged ? 1 : 0) | (e.slowT > 0 ? 2 : 0) | (e.stunT > 0 ? 4 : 0) | (e.summoned ? 8 : 0)];
+        const key = row.join(','), last = seen.get(e.id);
+        if (last && last.key === key && now - last.t < 1) continue;
+        seen.set(e.id, { key, t: now }); l.push(row);
       }
-      this.send(p.id, { t: 'es', l });
+      if (seen.size > 400) for (const id of seen.keys()) if (!this.enemies.has(id)) seen.delete(id);
+      if (l.length) this.send(p.id, { t: 'es', l });
     }
   }
 }

@@ -314,16 +314,23 @@ function startGame(save, net) {
 const clock = new THREE.Clock();
 let fpsT = 0, frames = 0, good = 0;
 // Frame pacing: a steady 30 fps feels smoother than a frame rate jumping between 20 and 50.
-let cap = fpsPref === '30' ? 30 : 0, lastFrame = 0, calib = fpsPref === 'auto' && coarse ? { t: 0, n: 0 } : null;
+let cap = fpsPref === '30' || (fpsPref === 'auto' && coarse && tier === 1) ? 30 : 0, lastFrame = 0, calib = fpsPref === 'auto' && coarse ? { t: 0, n: 0 } : null;
 function calibrate(raw) {
   if (!calib || !game) return;
   calib.t += raw; calib.n++;
   if (calib.t > 6) { if (calib.n / calib.t < 48) cap = 30; calib = null; }
 }
+// Shadows are redrawn every other frame on phones (they barely move between frames).
+if (quality !== 'high') renderer.shadowMap.autoUpdate = false;
+let frameN = 0;
+const menuOpen = () => !game || document.querySelector('.modal:not(.hidden)') || !document.querySelector('#netlost').classList.contains('hidden');
 function loop(now) {
   requestAnimationFrame(loop);
-  if (cap && now - lastFrame < 1000 / cap - 4) return;
+  // Menus and open windows don't need 60 fps: run them at 30 to save battery and heat.
+  const c = menuOpen() && coarse ? Math.min(cap || 30, 30) : cap;
+  if (c && now - lastFrame < 1000 / c - 4) return;
   lastFrame = now;
+  if (quality !== 'high' && (frameN++ & 1) === 0) renderer.shadowMap.needsUpdate = true;
   const raw = clock.getDelta();
   const dt = Math.min(raw, 0.1);
   renderer.info.reset();
