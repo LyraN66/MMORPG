@@ -17,7 +17,7 @@ import { FX } from './fx.js';
 import { Game } from './game.js';
 import { UI } from './ui.js';
 import { Input } from './input.js';
-import { initAudio } from './audio.js';
+import { initAudio, playMusic } from './audio.js';
 import { CLASSES, GAME_NAME, ENEMIES, UNIQUES, MOUNTS, makeItem } from './data.js';
 import { monstersFor, rigOf } from '../server/shared/rigs.js';
 import { loadSave, newSave, saveGame, cacheSave, legacySave, dropLegacy } from './save.js';
@@ -165,7 +165,7 @@ async function connectNet(say) {
 function hideScreens() { for (const id of ['#login', '#title', '#cselect']) $(id).classList.add('hidden'); $('#lobby').classList.add('hidden'); }
 
 function showLogin(msg = '', ok = false) {
-  hideScreens(); $('#login').classList.remove('hidden');
+  hideScreens(); $('#login').classList.remove('hidden'); playMusic('title');
   const m = $('#l-msg'); m.textContent = msg; m.className = 'lmsg' + (ok ? ' ok' : '');
   let mode = 'login';
   const setMode = (md) => {
@@ -210,10 +210,10 @@ function afterAuth(r) {
 }
 
 function showTitle() {
-  hideScreens();
+  hideScreens(); playMusic('title');
   $('#title').classList.remove('hidden');
   $('#t-play').innerHTML = `▶️ Oyna <small>${char.name} · ${CLASSES[char.cls].name} · Sv.${char.level}</small>`;
-  $('.credit').textContent = `${account.remember ? '' : ''}Grafikler: KayKit & Quaternius (CC0) · Sürüm 0.1.${WEB_VERSION}`;
+  $('.credit').textContent = `${account.remember ? '' : ''}Grafik & ses: KayKit, Quaternius, Kenney · Müzik: kmontesdev, Emma_MA (CC0) · Sürüm 0.1.${WEB_VERSION}`;
   $('#t-apk').classList.toggle('hidden', !needApk);
   if (needApk) $('#t-apk').onclick = () => { window.location.href = needApk.apk; };
   $('#t-play').onclick = () => { initAudio(); enterWorld(); };

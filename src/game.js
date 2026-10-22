@@ -7,7 +7,9 @@ import { Coop } from './coop.js';
 import { Social } from './social.js';
 import { cloneProp, cloneWeapon, makeCharacter, Animator } from './assets.js';
 import { Quests, GIVER } from './quests.js';
-import { sfx } from './audio.js';
+import { sfx, playMusic, setAmbience, setFireLevel, setStepKind } from './audio.js';
+// Exploration music per map (camps use the calm track, bosses the battle themes).
+const MAP_MUSIC = { vadi: 'explore1', bataklik: 'explore2', col: 'explore3', buzul: 'explore4', volkan: 'explore1', kiyi: 'explore5', hayalet: 'explore2', ejder: 'explore4' };
 import { saveGame } from './save.js';
 
 const TMP = new THREE.Vector3();
@@ -39,6 +41,7 @@ export class Game {
     this.setupUniques();
     this.setupNpcs();
     this.quests = new Quests(this);
+    setAmbience(ACTIVE_MAP.theme || 'bones'); setStepKind(ACTIVE_MAP.theme === 'snow' ? 'snow' : 'step');
     if (save.mount && save.mounts?.includes(save.mount)) this.setMount(this.player, save.mount);
     this.targetRing = this.makeTargetRing();
     this.moveMarker = this.makeMoveMarker();
@@ -548,6 +551,22 @@ export class Game {
       this.moveMarker.visible = true; this.moveMarker.position.copy(g.point).setY(g.point.y + 0.06); this.moveMarker.userData.t = 0;
     }
   }
+  // ---------- music & ambience ----------
+  // Boss music while a boss is fighting nearby, calm music in safe camps, the map's theme elsewhere.
+  updateMusic() {
+    const p = this.player;
+    const boss = this.enemies.find((e) => e.alive && e.isBoss && dist2d(e.pos, p.pos) < 30 && (e.state === 'chase' || e.state === 'cast' || e.remote && e.hp < e.maxHp));
+    if (boss) { this.bossMusic = { key: boss.unique.final ? 'final' : 'boss', t: this.time }; }
+    let key;
+    if (this.bossMusic && this.time - this.bossMusic.t < 8) key = this.bossMusic.key;
+    else if (p.safe) key = 'camp';
+    else key = MAP_MUSIC[ACTIVE_MAP.id] || 'explore1';
+    playMusic(key);
+    // Campfire crackle grows as you get close to a camp or outpost fire.
+    let fd = 99; for (const o of OUTPOSTS) fd = Math.min(fd, Math.hypot(p.pos.x - o.x, p.pos.z - o.z));
+    setFireLevel(Math.max(0, 1 - fd / 9));
+  }
+
   // ---------- mounts ----------
   setMount(u, id) {
     if (u.mount) { this.scene.remove(u.mount.ch.root); u.mount = null; }
@@ -626,6 +645,7 @@ export class Game {
     this.updateEnemies(dt);
     this.social?.update(dt);
     this.achT = (this.achT || 0) - rawDt; if (this.achT <= 0) { this.achT = 2; this.checkAchievements(); }
+    this.musicT = (this.musicT || 0) - rawDt; if (this.musicT <= 0) { this.musicT = 0.5; this.updateMusic(); }
     for (let i = this.enemies.length - 1; i >= 0; i--) if (this.enemies[i].remove) {
       const e = this.enemies[i];
       this.ui.removePlate(e); e.dispose(); this.enemies.splice(i, 1);

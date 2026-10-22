@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { xpToNext, RARITY, itemStat, PLUS_CHANCE, plusCost, sellPrice, SHOP, MAX_LEVEL , SLOTS, SLOT, STAT_NAMES, itemScore, potionPrice, ELIXIRS, elixirPrice, chestPrice, bagPrice, travelPrice, makeItem, randomSlot , MOUNTS, ACHIEVEMENTS } from './data.js';
-import { sfx, soundOn, setSound } from './audio.js';
+import { sfx, soundOn, setSound, getVolume, setVolume } from './audio.js';
 import { saveGame } from './save.js';
 import { BOUNDS, roadX, CAMP_POS, CRYPT_POS, heightAt } from './world.js';
 import { dist2d } from './units.js';
@@ -807,6 +807,14 @@ export class UI {
   openMenu() {
     $('#snd').textContent = soundOn() ? '🔊 Ses: Açık' : '🔇 Ses: Kapalı';
     $('#snd').onclick = () => { setSound(!soundOn()); this.openMenu(); };
+    const vols = $('#vols'); vols.innerHTML = '';
+    for (const [k, label] of [['music', '🎵 Müzik'], ['sfx', '⚔️ Efektler'], ['amb', '🌲 Ortam']]) {
+      const row = h('label', 'vol', `<span>${label}</span><input type="range" min="0" max="100" value="${Math.round(getVolume(k) * 100)}" /><b>${Math.round(getVolume(k) * 100)}</b>`);
+      const inp = row.querySelector('input');
+      inp.oninput = () => { setVolume(k, inp.value / 100); row.querySelector('b').textContent = inp.value; };
+      inp.onchange = () => { if (k === 'sfx') sfx.hit(false); };
+      vols.appendChild(row);
+    }
     const q = localStorage.getItem('kv-quality') || 'auto';
     $('#qual').textContent = '🎨 Grafik: ' + { auto: 'Otomatik (cihaza göre)', high: 'Yüksek', medium: 'Orta', low: 'Düşük' }[q];
     let fp = 'auto'; try { fp = localStorage.getItem('kv-fps') || 'auto'; } catch { /* ignore */ }

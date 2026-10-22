@@ -46,3 +46,5 @@ Three.js (WebGL) · Vite · Capacitor (Android) · WebAudio ile üretilen sesler
 
 ## Lisanslar
 3D modeller ve animasyonlar: [KayKit](https://kaylousberg.itch.io) — Kay Lousberg, **CC0** (Adventurers 1.0 & 2.0, Skeletons, Dungeon Remastered, Halloween Bits, Medieval Hexagon). Yazı tipi: Cinzel (SIL OFL).
+
+Canavarlar: [Quaternius](https://quaternius.com) Ultimate Monsters (CC0). Ses efektleri: [Kenney](https://kenney.nl) RPG Audio, Impact Sounds, Interface Sounds (CC0). Müzik: kmontesdev "Fantasy Game Music Tracks" (CC0), Emma_MA "Determined Pursuit" ve "QaziJamJam" (CC0, OpenGameArt). Ortam sesleri kodla üretiliyor.
