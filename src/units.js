@@ -1,6 +1,7 @@
 import * as THREE from 'three';
+import { findPath } from './path.js';
 import { makeCharacter, Animator } from './assets.js';
-import { CLASSES, ENEMIES, itemStat } from './data.js';
+import { CLASSES, ENEMIES, itemStat , slotsFor } from './data.js';
 import { heightAt } from './world.js';
 import { safeAt } from '../server/shared/terrain.js';
 import { sfx } from './audio.js';
@@ -52,16 +53,18 @@ export class Player extends Unit {
   get level() { return this.save.level; }
   recalc() {
     const c = this.cls, L = this.save.level - 1, eq = this.save.equip;
-    const st = { atk: 0, def: 0, hp: 0 };
-    for (const k of ['weapon', 'armor', 'ring']) if (eq[k]) { const s = itemStat(eq[k]); st.atk += s.atk; st.def += s.def; st.hp += s.hp; }
+    const st = { atk: 0, def: 0, hp: 0, mp: 0 };
+    for (const sl of slotsFor(c.id)) if (eq[sl.id]) { const s = itemStat(eq[sl.id]); st.atk += s.atk; st.def += s.def; st.hp += s.hp; st.mp += s.mp; }
     this.maxHp = Math.round(c.base.hp + c.grow.hp * L + st.hp);
-    this.maxMp = Math.round(c.base.mp + c.grow.mp * L);
+    this.maxMp = Math.round(c.base.mp + c.grow.mp * L + st.mp);
     this.atk = Math.round(c.base.atk + c.grow.atk * L + st.atk);
     this.def = Math.round(c.base.def + c.grow.def * L + st.def);
     if (this.hp > this.maxHp) this.hp = this.maxHp;
   }
-  get effAtk() { return this.atk * (this.buffT > 0 ? 1.35 : 1); }
-  get effDef() { return this.def * (this.buffT > 0 ? 1.25 : 1); }
+  // Elixir still running? (real-time end stamps in the save)
+  elixir(id) { return (this.save.buffs?.[id] || 0) > Date.now(); }
+  get effAtk() { return this.atk * (this.buffT > 0 ? 1.35 : 1) * (this.elixir('atk') ? 1.2 : 1); }
+  get effDef() { return this.def * (this.buffT > 0 ? 1.25 : 1) * (this.elixir('def') ? 1.2 : 1); }
   updateWeaponLook() {
     // +7 and above weapons glow (classic "plus" aura).
     const w = this.save.equip.weapon; const plus = w ? w.plus : 0;
@@ -111,12 +114,18 @@ export class Player extends Unit {
         if (Math.random() < 0.8) g.fx.trail(TMP.copy(this.pos).setY(this.pos.y + 1), 0x9fd0ff, 0.7, 0.3);
       }
     }
+    // Target died or vanished: keep fighting the next one nearby (boss first), otherwise stop.
+    if (this.target && (!this.target.alive || this.target.remove)) {
+      const n = this.autoAttack ? g.pickTarget(this.pos, 9, this.target) : null;
+      this.target = n; if (!n) this.autoAttack = false;
+      this.chase = null;
+    }
     // Basic attacks don't root the player (cast.move); skills still do.
     const rooted = this.cast && !this.cast.move;
     const speed = this.cls.moveSpeed * (rooted ? 0 : this.cast ? 0.75 : 1);
     if (rooted) { /* casting a skill */ }
     else if (joy) {
-      this.moveTarget = null;
+      this.moveTarget = null; this.path = null;
       this.pos.x += mv.x * speed * dt; this.pos.z += mv.z * speed * dt;
       moving = true;
       // Attack on the move: keep hitting the target (or whatever is in reach) while walking.
@@ -138,14 +147,27 @@ export class Player extends Unit {
       if (d > range) {
         TMP.subVectors(this.target.pos, this.pos).setY(0).normalize();
         this.pos.addScaledVector(TMP, speed * dt); this.faceTo(this.target.pos, dt); moving = true;
+        // Not getting closer (blocked by a tree/wall)? Switch to another target or give up.
+        const c = this.chase ||= { t: 0, d, tgt: this.target };
+        if (c.tgt !== this.target) { c.tgt = this.target; c.t = 0; c.d = d; }
+        c.t += dt;
+        if (c.t > 1.2) {
+          if (d > c.d - 0.5) { const n = g.pickTarget(this.pos, 10, this.target); if (n && n !== this.target) this.target = n; else { this.autoAttack = false; } }
+          c.t = 0; c.d = d;
+        }
       } else {
         this.faceTo(this.target.pos, dt, 16);
         if (this.atkCd <= 0) this.basicAttack();
       }
     } else if (this.moveTarget) {
       const d = dist2d(this.pos, this.moveTarget);
-      if (d < 0.3) this.moveTarget = null;
-      else {
+      // Long walks (map taps) follow a path; give up if stuck against something.
+      const w = this.walk ||= { t: 0, d };
+      w.t += dt; if (w.t > 1.5) { if (d > w.d - 0.5) { this.moveTarget = null; this.path = null; } w.t = 0; w.d = d; }
+      if (d < (this.path?.length ? 0.9 : 0.3) || !this.moveTarget) {
+        this.moveTarget = null;
+        if (this.path?.length) { const n = this.path.shift(); this.moveTarget = new THREE.Vector3(n.x, heightAt(n.x, n.z), n.z); this.walk = null; }
+      } else {
         TMP.subVectors(this.moveTarget, this.pos).setY(0).normalize();
         this.pos.addScaledVector(TMP, Math.min(d, speed * dt)); this.faceTo(this.moveTarget, dt); moving = true;
       }
@@ -204,9 +226,9 @@ export class Player extends Unit {
     if (this.mp < s.mp) { g.ui.toast('Yetersiz mana', '#6ab8ff'); sfx.deny(); return; }
     // auto-acquire target for targeted skills
     const needsTarget = ['charge', 'fireball', 'meteor', 'chain'].includes(s.id);
-    if (needsTarget && (!this.target || !this.target.alive || dist2d(this.pos, this.target.pos) > 16)) this.target = g.nearestEnemy(this.pos, 14);
+    if (needsTarget && (!this.target || !this.target.alive || dist2d(this.pos, this.target.pos) > 16)) this.target = g.pickTarget(this.pos, 14);
     if (needsTarget && !this.target) { g.ui.toast('Hedef yok', '#ffcf6a'); sfx.deny(); return; }
-    this.mp -= s.mp; this.cds[s.id] = s.cd; this.moveTarget = null;
+    this.mp -= s.mp; this.cds[s.id] = s.cd; this.moveTarget = null; this.path = null;
     const t = this.target;
     if (t) this.autoAttack = true;
     g.coop?.sendAct({ s: s.id, tid: t?.id, tx: t?.pos.x, tz: t?.pos.z });
@@ -320,6 +342,15 @@ export class Player extends Unit {
         break;
       }
     }
+  }
+
+  // Walk to a far point along a path around trees and walls.
+  walkTo(x, z) {
+    const path = findPath(this.game.world, this.pos, { x, z });
+    if (!path) return false;
+    this.autoAttack = false; this.target = null; this.walk = null;
+    const n = path.shift(); this.path = path; this.moveTarget = new THREE.Vector3(n.x, heightAt(n.x, n.z), n.z);
+    return true;
   }
 
   usePotion(kind) {

@@ -2,7 +2,7 @@
 // Mirrors the client's enemy behaviour (src/units.js) without any graphics. Clients render enemies
 // from the snapshots sent here and report the damage they deal.
 import fs from 'node:fs';
-import { ENEMIES, UNIQUES, makeItem } from './shared/data.js';
+import { ENEMIES, UNIQUES, makeItem, randomSlot } from './shared/data.js';
 import { makeTerrain, rng } from './shared/terrain.js';
 import { RIGS, rigOf, rigClip } from './shared/rigs.js';
 
@@ -328,19 +328,18 @@ export class Sim {
     if (!killer || e.noLoot) { if (e.unique) this.resetUnique(e); return; }
     const drop = (kind, data) => this.dropLoot(e.pos, kind, data);
     const cls = () => { const c = [...this.players.values()].map((p) => p.cls); return c[Math.floor(Math.random() * c.length)] || 'knight'; };
-    const slot = () => ['weapon', 'armor', 'ring'][Math.floor(Math.random() * 3)];
     if (e.unique) {
       const u = UNIQUES[e.unique.id];
       this.broadcast({ t: 'ann', x: `🏆 ${u.name} yenildi!`, k: 'victory' });
       drop('gold', Math.round(u.gold * (0.8 + Math.random() * 0.4)));
       const items = u.final ? [3, 2, 2] : [2, Math.random() < 0.5 ? 2 : 1];
-      for (const r of items) drop('item', makeItem(slot(), e.level, r, cls()));
+      for (const r of items) { const c = cls(); drop('item', makeItem(randomSlot(c), e.level, r, c)); }
       drop('potion', 'hp'); drop('potion', 'mp'); drop('potion', 'hp');
       this.resetUnique(e);
       return;
     }
     drop('gold', Math.round(e.level * 3 * (0.6 + Math.random() * 0.8) + 2));
-    if (Math.random() < 0.16) { const r = Math.random(); drop('item', makeItem(slot(), e.level, r < 0.04 ? 2 : r < 0.26 ? 1 : 0, cls())); }
+    if (Math.random() < 0.16) { const r = Math.random(); const c = cls(); drop('item', makeItem(randomSlot(c), e.level, r < 0.04 ? 2 : r < 0.26 ? 1 : 0, c)); }
     if (Math.random() < 0.14) drop('potion', Math.random() < 0.55 ? 'hp' : 'mp');
   }
   resetUnique(e) { const st = this.uniques.find((u) => u.enemy === e); if (st) { st.enemy = null; st.timer = st.def.respawn; } }

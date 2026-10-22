@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { xpToNext, ENEMIES, UNIQUES, CAMPS, makeItem } from './data.js';
+import { xpToNext, ENEMIES, UNIQUES, CAMPS, makeItem, randomSlot } from './data.js';
 import { heightAt, rng, BOUNDS } from './world.js';
 import { cloneProp } from './assets.js';
 import { dist2d } from './units.js';
@@ -200,7 +200,7 @@ export class Quests {
     const r = questReward(q, s.level);
     s.gold += r.gold;
     if (r.potions) for (const k in r.potions) s.potions[k] = (s.potions[k] || 0) + r.potions[k];
-    if (r.item != null) g.giveItem(makeItem(['weapon', 'armor', 'ring'][Math.floor(Math.random() * 3)], Math.max(s.level, q.lv), r.item, s.cls));
+    if (r.item != null) g.giveItem(makeItem(randomSlot(s.cls), Math.max(s.level, q.lv), r.item, s.cls));
     sfx.enhanceOk();
     g.ui.announce(`✔ Görev tamamlandı: ${q.name}`, 'victory');
     g.fx.pillar(g.player.pos, 0x7dff9a, { h: 10, r: 1.2, dur: 1.2 });

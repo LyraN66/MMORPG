@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { xpToNext, RARITY, itemStat, PLUS_CHANCE, plusCost, sellPrice, SHOP, MAX_LEVEL } from './data.js';
+import { xpToNext, RARITY, itemStat, PLUS_CHANCE, plusCost, sellPrice, SHOP, MAX_LEVEL , SLOTS, SLOT, STAT_NAMES, itemScore, potionPrice, ELIXIRS, elixirPrice, chestPrice, bagPrice, travelPrice, makeItem, randomSlot } from './data.js';
 import { sfx, soundOn, setSound } from './audio.js';
 import { saveGame } from './save.js';
-import { BOUNDS, roadX, CAMP_POS, CRYPT_POS } from './world.js';
+import { BOUNDS, roadX, CAMP_POS, CRYPT_POS, heightAt } from './world.js';
 import { dist2d } from './units.js';
 import { QUESTS, GIVER, GIVERS, questReward, objectiveText, mapLock, chainDone } from './quests.js';
 import { OUTPOSTS, ACTIVE_MAP } from '../server/shared/terrain.js';
@@ -172,6 +172,13 @@ export class UI {
     $('#xp i').style.width = xpk * 100 + '%';
     $('#xp span').textContent = s.level >= MAX_LEVEL ? 'MAKS' : `Sv.${s.level} · %${(xpk * 100).toFixed(1)}`;
     $('#hp').classList.toggle('low', p.hp / p.maxHp < 0.3);
+    this.elixT = (this.elixT || 0) - dt;
+    if (this.elixT <= 0) {
+      this.elixT = 1;
+      const now = Date.now(), bf = this.g.save.buffs || {};
+      const html = ELIXIRS.filter((e) => (bf[e.id] || 0) > now).map((e) => `<span>${e.icon} ${Math.ceil((bf[e.id] - now) / 60000)}dk</span>`).join('');
+      if (html !== this.elixHtml) { this.elixHtml = html; $('#elix').innerHTML = html; }
+    }
     $('#buff').classList.toggle('hidden', !(p.buffT > 0));
     if (p.buffT > 0) $('#buff span').textContent = Math.ceil(p.buffT);
     $('#pot-hp b').textContent = s.potions.hp || 0;
@@ -300,30 +307,34 @@ export class UI {
   openModal(id) { this.closeModal(); $(id).classList.remove('hidden'); this.g.input.enabled = false; sfx.ui(); }
   closeModal() { document.querySelectorAll('.modal').forEach((m) => m.classList.add('hidden')); if (this.g) this.g.input.enabled = true; }
 
+  itemIcon(it) { return it.slot === 'weapon' ? (it.wtype === 'staff' ? '🪄' : '🗡️') : SLOT[it.slot]?.icon || '❔'; }
+  statText(it) { const st = itemStat(it); return Object.keys(STAT_NAMES).filter((k) => st[k]).map((k) => `${STAT_NAMES[k]} +${st[k]}`).join(' · '); }
   itemCard(it, { compact } = {}) {
-    const r = RARITY[it.rarity]; const st = itemStat(it);
-    const stat = st.atk ? `Saldırı +${st.atk}` : st.def ? `Savunma +${st.def}` : `Can +${st.hp}`;
-    return `<div class="icard r${it.rarity}"><div class="iic">${it.slot === 'weapon' ? (it.wtype === 'staff' ? '🪄' : '🗡️') : it.slot === 'armor' ? '🛡️' : '💍'}${it.plus ? `<em>+${it.plus}</em>` : ''}</div>
-      ${compact ? '' : `<div class="iinfo"><b style="color:${r.color}">${it.name}${it.plus ? ' +' + it.plus : ''}</b><small>${r.name} · Sv.${it.lv}</small><span>${stat}</span></div>`}</div>`;
+    const r = RARITY[it.rarity];
+    return `<div class="icard r${it.rarity}"><div class="iic">${this.itemIcon(it)}${it.plus ? `<em>+${it.plus}</em>` : ''}</div>
+      ${compact ? '' : `<div class="iinfo"><b style="color:${r.color}">${it.name}${it.plus ? ' +' + it.plus : ''}</b><small>${r.name} · ${SLOT[it.slot]?.name || ''} · Sv.${it.lv}</small><span>${this.statText(it)}</span></div>`}</div>`;
   }
 
   // An item is an upgrade if this class can use it and it beats what's equipped in that slot.
-  canUse(it) { return it.slot !== 'weapon' || it.wtype === (this.g.player.cls.id === 'mage' ? 'staff' : 'sword'); }
+  canUse(it) {
+    const mage = this.g.player.cls.id === 'mage';
+    if (it.slot === 'weapon') return it.wtype === (mage ? 'staff' : 'sword');
+    return !(SLOT[it.slot]?.knightOnly && mage);
+  }
   upgradeBy(it) {
     if (!this.canUse(it)) return 0;
     const cur = this.g.save.equip[it.slot];
-    const a = itemStat(it), k = a.atk ? 'atk' : a.def ? 'def' : 'hp';
-    if (!cur) return a[k] || 1;
-    return Math.max(0, a[k] - (itemStat(cur)[k] || 0));
+    if (!cur) return Math.max(1, Math.round(itemScore(it)));
+    return Math.max(0, Math.round(itemScore(it) - itemScore(cur)));
   }
 
   refreshInventory() {
     if (!this.g) return;
     const s = this.g.save, p = this.g.player;
     const eq = $('#equip'); eq.innerHTML = '';
-    for (const [slot, label] of [['weapon', 'Silah'], ['armor', 'Zırh'], ['ring', 'Yüzük']]) {
-      const it = s.equip[slot];
-      const el = h('div', 'eqslot', `<label>${label}</label>${it ? this.itemCard(it) : '<div class="empty">Boş</div>'}`);
+    for (const sl of SLOTS) {
+      const it = s.equip[sl.id], blocked = sl.knightOnly && p.cls.id === 'mage';
+      const el = h('div', 'eqslot' + (blocked ? ' blocked' : ''), `<label>${sl.icon} ${sl.name}</label>${it ? this.itemCard(it) : `<div class="empty">${blocked ? 'Büyücü kullanamaz' : 'Boş'}</div>`}`);
       if (it) el.onclick = () => this.itemDetail(it, true);
       eq.appendChild(el);
     }
@@ -332,7 +343,7 @@ export class UI {
       <div><span>Öldürülen</span><b>${s.stats.kills || 0}</b></div><div><span>Unique</span><b>${s.stats.uniques || 0}</b></div>`;
     const bag = $('#bag'); bag.innerHTML = '';
     let ups = 0;
-    for (let i = 0; i < 24; i++) {
+    for (let i = 0; i < s.bagMax; i++) {
       const it = s.bag[i];
       const up = it ? this.upgradeBy(it) : 0;
       if (up) ups++;
@@ -340,7 +351,7 @@ export class UI {
       if (it) el.onclick = () => this.itemDetail(it, false);
       bag.appendChild(el);
     }
-    $('#bagcount').textContent = `${s.bag.length}/24`;
+    $('#bagcount').textContent = `${s.bag.length}/${s.bagMax}`;
     $('#btn-inv').classList.toggle('has-up', ups > 0);
     $('#sellall').disabled = !s.bag.some((it) => !this.upgradeBy(it));
   }
@@ -369,21 +380,27 @@ export class UI {
     const s = this.g.save, p = this.g.player;
     const d = $('#idetail'); const cur = s.equip[it.slot];
     let cmp = '';
-    if (!equipped && cur) {
-      const a = itemStat(it), b = itemStat(cur); const k = a.atk ? 'atk' : a.def ? 'def' : 'hp';
-      const diff = a[k] - b[k]; cmp = `<div class="cmp ${diff >= 0 ? 'up' : 'down'}">${diff >= 0 ? '▲' : '▼'} ${Math.abs(diff)} (kuşanılana göre)</div>`;
+    if (!equipped && cur && this.canUse(it)) {
+      const a = itemStat(it), b = itemStat(cur);
+      const parts = Object.keys(STAT_NAMES).filter((k) => a[k] || b[k]).map((k) => { const d = a[k] - b[k]; return `<span class="${d >= 0 ? 'up' : 'down'}">${STAT_NAMES[k]} ${d >= 0 ? '▲' : '▼'}${Math.abs(d)}</span>`; });
+      cmp = `<div class="cmp ${itemScore(it) >= itemScore(cur) ? 'up' : 'down'}">${parts.join(' ')} <small>(kuşanılana göre)</small></div>`;
     }
-    const wrong = it.slot === 'weapon' && it.wtype !== (p.cls.id === 'mage' ? 'staff' : 'sword');
+    const wrong = !this.canUse(it);
     if (!equipped && !cur && this.canUse(it)) cmp = '<div class="cmp up">▲ Bu yuva boş — hemen kuşan</div>';
-    d.innerHTML = `${this.itemCard(it)}${cmp}${wrong ? '<div class="cmp down">Bu silahı sınıfın kullanamaz</div>' : ''}
+    d.innerHTML = `${this.itemCard(it)}${cmp}${wrong ? '<div class="cmp down">Sınıfın bu eşyayı kullanamaz</div>' : ''}
       <div class="row">${equipped ? '' : `<button class="btn" id="d-eq" ${wrong ? 'disabled' : ''}>Kuşan</button>`}
-      ${equipped ? '' : `<button class="btn ghost" id="d-sell">Sat (${sellPrice(it)} 🪙)</button>`}<button class="btn ghost" id="d-x">Kapat</button></div>`;
+      ${equipped ? '<button class="btn ghost" id="d-un">Çıkar</button>' : `<button class="btn ghost" id="d-sell">Sat (${sellPrice(it)} 🪙)</button>`}<button class="btn ghost" id="d-x">Kapat</button></div>`;
     d.classList.remove('hidden');
     $('#d-x').onclick = () => d.classList.add('hidden');
     const eqb = $('#d-eq');
     if (eqb) eqb.onclick = () => {
       s.bag = s.bag.filter((x) => x !== it); if (cur) s.bag.push(cur); s.equip[it.slot] = it;
       p.recalc(); p.updateWeaponLook(); sfx.pickup(); d.classList.add('hidden'); this.refreshInventory(); saveGame(s, p);
+    };
+    const ub = $('#d-un');
+    if (ub) ub.onclick = () => {
+      if (s.bag.length >= s.bagMax) { this.toast('Çanta dolu!', '#ff6a6a'); return; }
+      s.equip[it.slot] = null; s.bag.push(it); p.recalc(); p.updateWeaponLook(); d.classList.add('hidden'); this.refreshInventory(); saveGame(s, p);
     };
     const sb = $('#d-sell');
     if (sb) sb.onclick = () => { s.bag = s.bag.filter((x) => x !== it); s.gold += sellPrice(it); sfx.coin(); d.classList.add('hidden'); this.refreshInventory(); saveGame(s, p); };
@@ -553,9 +570,22 @@ export class UI {
     if (!cv.dataset.bound) {
       cv.dataset.bound = '1';
       let drag = null;
-      cv.addEventListener('pointerdown', (e) => { drag = { y: e.clientY, cz: this.map.cz }; cv.setPointerCapture(e.pointerId); });
+      cv.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, cz: this.map.cz, t: performance.now() }; cv.setPointerCapture(e.pointerId); });
       cv.addEventListener('pointermove', (e) => { if (drag) this.map.cz = this.map.clampZ(drag.cz - (e.clientY - drag.y) * this.map.D / this.map.k); });
-      cv.addEventListener('pointerup', () => { drag = null; });
+      cv.addEventListener('pointerup', (e) => {
+        const d = drag; drag = null;
+        if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8 || performance.now() - d.t > 500) return;
+        // A tap (not a drag): walk there.
+        const r = cv.getBoundingClientRect(), { k, D, ox } = this.map, px = (e.clientX - r.left) * D, py = (e.clientY - r.top) * D;
+        const oy = (cv.height - this.mapBase.height) / 2, top = this.map.cz - this.map.viewH / 2;
+        const x = (px - ox) / k + BOUNDS.minX, z = oy >= 0 ? (py - oy) / k + BOUNDS.minZ : py / k + top;
+        if (x < BOUNDS.minX || x > BOUNDS.maxX || z < BOUNDS.minZ || z > BOUNDS.maxZ) return;
+        if (this.g.player.dead) return;
+        if (this.g.player.walkTo(x, z)) {
+          this.closeModal(); sfx.ui(); this.toast('📍 Hedefe yürüyorsun', '#bfe3ff');
+          const m = this.g.moveMarker; m.visible = true; m.position.set(x, heightAt(x, z) + 0.06, z); m.userData.t = 0; this.g.walkDest = m.position.clone();
+        } else this.toast('Oraya yol bulunamadı', '#ff8a6a');
+      });
       cv.addEventListener('wheel', (e) => { this.map.cz = this.map.clampZ(this.map.cz + e.deltaY * 0.05); e.preventDefault(); }, { passive: false });
     }
     const draw = () => {
@@ -625,23 +655,58 @@ export class UI {
     const g = this.g;
     const rows = g.uniques.map((u) => `<div class="lg"><span>💀 ${u.def.name}</span><b>${u.enemy && u.enemy.alive ? '<em>Sahada!</em>' : fmtTime(u.timer)}</b></div>`).join('');
     const qs = g.quests.list().map(({ q, prog, done }) => `<div class="lg"><span>${done ? '✔' : '📜'} ${q.name}</span><b>${done ? 'Teslim et' : prog + '/' + q.count}</b></div>`).join('');
-    $('#maplegend').innerHTML = `<h4>Unique Boss'lar</h4>${rows}<h4>Görevler</h4>${qs || '<div class="lg dim">Aktif görev yok</div>'}
+    const price = travelPrice(g.save.level);
+    const posts = OUTPOSTS.map((o, i) => `<div class="lg"><span>⛺ ${o.name}</span><button class="btn mini" data-o="${i}">⚡ ${price} 🪙</button></div>`).join('');
+    $('#maplegend').innerHTML = `<p class="maptip">👆 Haritada bir yere dokun, karakterin oraya yürüsün.</p><h4>Hızlı Işınlanma</h4>${posts}<h4>Unique Boss'lar</h4>${rows}<h4>Görevler</h4>${qs || '<div class="lg dim">Aktif görev yok</div>'}
       <div class="keys"><span>⛺ Kamp</span><span>🏛️ Tapınak</span><span><i class="dot org"></i> Mob kampı (seviye)</span><span><i class="dot red"></i> Zor</span><span><i class="dot blue"></i> NPC</span><span><i class="dot green"></i> Arkadaş</span><span>✦ Toplanacak</span><span><i class="ring"></i> Görev bölgesi</span></div>`;
+    $('#maplegend').querySelectorAll('button[data-o]').forEach((b) => (b.onclick = () => { this.closeModal(); g.fastTravel(OUTPOSTS[+b.dataset.o]); }));
     clearTimeout(this.legendT);
     if (!$('#map').classList.contains('hidden')) this.legendT = setTimeout(() => this.mapLegend(), 1000);
   }
 
-  openShop() {
-    const s = this.g.save; const box = $('#shoplist'); box.innerHTML = '';
-    for (const it of SHOP) {
-      const row = h('div', 'shoprow', `<div class="si">${it.icon}</div><div class="sinfo"><b>${it.name}</b><small>${it.desc} · Sende: ${s.potions[it.id] || 0}</small></div>
-        <button class="btn" data-n="1">${it.price} 🪙</button><button class="btn ghost" data-n="10">x10</button>`);
-      row.querySelectorAll('button').forEach((b) => (b.onclick = () => {
-        const n = +b.dataset.n, cost = it.price * n;
-        if (s.gold < cost) { sfx.deny(); this.toast('Yetersiz altın', '#ff6a6a'); return; }
-        s.gold -= cost; s.potions[it.id] = (s.potions[it.id] || 0) + n; sfx.coin(); this.openShop(); $('#shop').classList.remove('hidden');
-      }));
-      box.appendChild(row);
+  openShop(tab = this.shopTab || 'pots') {
+    this.shopTab = tab;
+    const s = this.g.save, p = this.g.player, lv = s.level, box = $('#shoplist'); box.innerHTML = '';
+    const tabs = h('div', 'shoptabs', [['pots', '🧪 İksir'], ['elix', '✨ Güç İksiri'], ['chest', '🎁 Sandık'], ['bag', '🎒 Çanta']]
+      .map(([id, n]) => `<button class="tab${id === tab ? ' on' : ''}" data-t="${id}">${n}</button>`).join(''));
+    tabs.querySelectorAll('button').forEach((b) => (b.onclick = () => { sfx.ui(); this.openShop(b.dataset.t); }));
+    box.appendChild(tabs);
+    const pay = (cost) => { if (s.gold < cost) { sfx.deny(); this.toast('Yetersiz altın', '#ff6a6a'); return false; } s.gold -= cost; sfx.coin(); return true; };
+    const refresh = () => { saveGame(s, p); this.openShop(tab); };
+    const row = (icon, name, desc, btns) => { const r = h('div', 'shoprow', `<div class="si">${icon}</div><div class="sinfo"><b>${name}</b><small>${desc}</small></div>${btns}`); box.appendChild(r); return r; };
+    if (tab === 'pots') {
+      const price = potionPrice(lv);
+      for (const it of SHOP) {
+        const r = row(it.icon, it.name, `${it.desc} · Sende: ${s.potions[it.id] || 0}`, `<button class="btn" data-n="1">${price} 🪙</button><button class="btn ghost" data-n="10">x10</button>`);
+        r.querySelectorAll('button').forEach((b) => (b.onclick = () => { const n = +b.dataset.n; if (pay(price * n)) { s.potions[it.id] = (s.potions[it.id] || 0) + n; refresh(); } }));
+      }
+    } else if (tab === 'elix') {
+      for (const e of ELIXIRS) {
+        const left = Math.max(0, (s.buffs[e.id] || 0) - Date.now()), price = elixirPrice(e, lv);
+        const r = row(e.icon, e.name, `${e.desc} · ${e.mins} dk${left ? ` · <em>Aktif: ${Math.ceil(left / 60000)} dk</em>` : ''}`, `<button class="btn">${price.toLocaleString('tr-TR')} 🪙</button>`);
+        r.querySelector('button').onclick = () => {
+          if (!pay(price)) return;
+          s.buffs[e.id] = Math.max(Date.now(), s.buffs[e.id] || 0) + e.mins * 60000; // buying again adds time
+          this.toast(`${e.icon} ${e.name} içildi!`, '#ffd36b'); p.recalc(); refresh();
+        };
+      }
+      box.appendChild(h('p', 'shopnote', 'Süre oyun açıkken de kapalıyken de işler. Tekrar alırsan süre uzar.'));
+    } else if (tab === 'chest') {
+      const price = chestPrice(lv);
+      const r = row('🎁', 'Gizemli Eşya Sandığı', `Seviyene uygun rastgele bir eşya · %10 destansı, %2 efsanevi şansı`, `<button class="btn">${price.toLocaleString('tr-TR')} 🪙</button>`);
+      r.querySelector('button').onclick = () => {
+        if (s.bag.length >= s.bagMax) { sfx.deny(); this.toast('Çanta dolu!', '#ff6a6a'); return; }
+        if (!pay(price)) return;
+        const x = Math.random(), rar = x < 0.02 ? 3 : x < 0.12 ? 2 : x < 0.45 ? 1 : 0;
+        const it = makeItem(randomSlot(s.cls), lv, rar, s.cls);
+        this.g.giveItem(it); if (rar >= 2) sfx.rare();
+        refresh();
+      };
+    } else {
+      const price = bagPrice(s.bagMax);
+      const r = row('🎒', 'Çanta Genişletme', `Çantana 6 yuva ekler · Şu an: ${s.bagMax} yuva (en fazla 48)`, price ? `<button class="btn">${price.toLocaleString('tr-TR')} 🪙</button>` : '<span class="ptag">En büyük çanta</span>');
+      const b = r.querySelector('button');
+      if (b) b.onclick = () => { if (!pay(price)) return; s.bagMax += 6; this.toast(`🎒 Çanta ${s.bagMax} yuva oldu`, '#7dff9a'); refresh(); };
     }
     $('#shopgold').textContent = s.gold.toLocaleString('tr-TR') + ' 🪙';
     this.openModal('#shop');
@@ -649,19 +714,28 @@ export class UI {
 
   openSmith(sel) {
     const s = this.g.save; const list = $('#smithlist'); list.innerHTML = '';
-    const items = [...Object.values(s.equip).filter(Boolean), ...s.bag];
+    const worn = SLOTS.map((sl) => s.equip[sl.id]).filter(Boolean);
+    const items = [...worn, ...s.bag];
     sel = sel && items.includes(sel) ? sel : items[0];
-    for (const it of items) {
-      const el = h('div', 'bslot' + (it === sel ? ' sel' : ''), this.itemCard(it, { compact: true }));
-      el.onclick = () => this.openSmith(it); list.appendChild(el);
-    }
+    const section = (title, arr) => {
+      list.appendChild(h('div', 'smithh', title));
+      const grid = h('div', 'smithgrid2', '');
+      if (!arr.length) grid.appendChild(h('div', 'smithnone', 'Yok'));
+      for (const it of arr) {
+        const el = h('div', 'bslot' + (it === sel ? ' sel' : '') + (it.plus ? ' plus' : ''), this.itemCard(it, { compact: true }));
+        el.onclick = () => this.openSmith(it); grid.appendChild(el);
+      }
+      list.appendChild(grid);
+    };
+    section('🧍 Üzerindekiler', worn);
+    section(`🎒 Çantadakiler (${s.bag.length})`, s.bag);
     const panel = $('#smithpanel');
     if (!sel) { panel.innerHTML = '<p>Güçlendirilecek eşya yok.</p>'; this.openModal('#smith'); return; }
     const max = sel.plus >= 10;
     const ch = max ? 0 : PLUS_CHANCE[sel.plus + 1]; const cost = plusCost(sel);
     const next = { ...sel, plus: sel.plus + 1 };
-    const a = itemStat(sel), b = itemStat(next); const k = a.atk ? 'atk' : a.def ? 'def' : 'hp';
-    const label = { atk: 'Saldırı', def: 'Savunma', hp: 'Can' }[k];
+    const a = itemStat(sel), b = itemStat(next); const k = a.atk ? 'atk' : a.def ? 'def' : a.hp ? 'hp' : 'mp';
+    const label = STAT_NAMES[k];
     panel.innerHTML = `<div class="anvil" id="anvil">${this.itemCard(sel)}</div>
       ${max ? '<p class="maxed">Bu eşya en yüksek seviyede (+10)!</p>' : `
       <div class="enh"><div><span>Hedef</span><b>+${sel.plus + 1}</b></div><div><span>Başarı</span><b class="${ch < 0.4 ? 'bad' : ch < 0.8 ? 'mid' : 'ok'}">%${Math.round(ch * 100)}</b></div>

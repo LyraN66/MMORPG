@@ -18,7 +18,7 @@ import { Game } from './game.js';
 import { UI } from './ui.js';
 import { Input } from './input.js';
 import { initAudio } from './audio.js';
-import { CLASSES, GAME_NAME, ENEMIES, UNIQUES } from './data.js';
+import { CLASSES, GAME_NAME, ENEMIES, UNIQUES, makeItem } from './data.js';
 import { monstersFor } from '../server/shared/rigs.js';
 import { loadSave, newSave, deleteSave, saveGame } from './save.js';
 import { activateMap } from './mapstate.js';
@@ -279,7 +279,7 @@ function loop(now) {
   world = new World(scene, quality);
   resize();
   setupPreview();
-  window.__kv = { scene, camera, input, renderer, setPerf: (v) => { showPerf = v; }, setFps: (v) => { fpsPref = v; cap = v === '30' ? 30 : 0; calib = v === 'auto' && coarse ? { t: 0, n: 0 } : null; }, get world() { return world; }, get game() { return game; }, THREE };
+  window.__kv = { scene, camera, input, renderer, setPerf: (v) => { showPerf = v; }, setFps: (v) => { fpsPref = v; cap = v === '30' ? 30 : 0; calib = v === 'auto' && coarse ? { t: 0, n: 0 } : null; }, get world() { return world; }, get game() { return game; }, THREE, mk: (i) => makeItem(['shield','legs','necklace','bracelet','ring','chest'][i], 20, i % 3, 'knight') };
   // warm up shaders
   renderer.compile(scene, camera);
   $('#loadbar i').style.width = '100%';

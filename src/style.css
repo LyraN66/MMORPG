@@ -180,7 +180,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 #stats { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-top: 10px; font-size: 12.5px; }
 #stats div { display: flex; justify-content: space-between; border-bottom: 1px solid #ffffff10; padding: 3px 0; } #stats b { color: var(--gold2); }
 .bagh { font: 600 13px var(--title); color: var(--gold2); margin-bottom: 6px; } .bagh span { opacity: .6; font-family: system-ui; font-size: 11px; }
-#bag, #smithlist { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; align-content: start; }
+#bag, .smithgrid2 { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; align-content: start; }
+#smithlist { display: block; }
 .bslot { aspect-ratio: 1; background: #0007; border: 1px solid #ffffff12; border-radius: 8px; display: grid; place-items: center; cursor: pointer; }
 .bslot.sel { border-color: var(--gold); box-shadow: 0 0 10px rgba(217,181,107,.5); }
 .icard { display: flex; align-items: center; gap: 8px; }
@@ -303,7 +304,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
   .iinfo { font-size: 11px; } .iinfo b { font-size: 12px; }
   #stats { grid-template-columns: repeat(4, 1fr); gap: 2px 8px; margin-top: 6px; font-size: 11px; }
   #stats div { flex-direction: column; padding: 2px 0; }
-  #bag, #smithlist { grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+  #bag, .smithgrid2 { grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
   .bslot .iic { font-size: 16px; }
 }
 
@@ -313,3 +314,27 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 .pcard.here { border-color: #8a7aff; box-shadow: 0 0 12px rgba(138,122,255,.35); } .pcard.locked { opacity: .55; }
 .ptag { font-size: 12px; font-weight: 700; color: #b9adff; } .ptag.lock { color: #ffb38a; font-weight: 600; }
 .pcard .btn { padding: 7px 14px; font-size: 13px; }
+
+/* ---------- 7 equipment slots ---------- */
+#equip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+.eqslot { position: relative; padding: 14px 6px 5px; min-height: 52px; }
+.eqslot label { position: absolute; top: 2px; left: 7px; width: auto; font-size: 10px; opacity: .55; }
+.eqslot .iinfo b { font-size: 12px; } .eqslot .iinfo small, .eqslot .iinfo span { font-size: 10px; }
+.eqslot.blocked { opacity: .45; cursor: default; }
+.cmp span { margin-right: 6px; font-weight: 700; } .cmp span.up { color: #5dff7a; } .cmp span.down { color: #ff7a6a; } .cmp small { opacity: .6; }
+/* smith: worn vs bag */
+.smithh { font: 700 12px var(--title); color: var(--gold2); margin: 6px 2px 5px; letter-spacing: .5px; }
+.smithh:first-child { margin-top: 0; }
+.smithnone { grid-column: 1 / -1; font-size: 12px; opacity: .45; padding: 4px; }
+.bslot.plus { border-color: rgba(255,210,90,.45); }
+/* shop tabs */
+.shoptabs { display: flex; gap: 5px; margin-bottom: 8px; flex-wrap: wrap; }
+.shoptabs .tab { flex: 1; min-width: 70px; padding: 7px 4px; border-radius: 9px; border: 1px solid #ffffff1c; background: #0006; color: #ddd; font: 600 12px var(--body, sans-serif); cursor: pointer; }
+.shoptabs .tab.on { border-color: var(--gold); color: var(--gold2); background: rgba(217,181,107,.14); }
+.sinfo em { color: #7dff9a; font-style: normal; }
+.shopnote { font-size: 11px; opacity: .6; margin: 4px 2px; }
+/* elixir badges in HUD */
+#elix { display: flex; gap: 4px; margin-top: 2px; } #elix span { font-size: 11px; background: #0008; border-radius: 6px; padding: 1px 4px; }
+@media (max-width: 560px) { #equip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.maptip { font-size: 11.5px; opacity: .75; margin: 0 0 6px; }
+.lg .btn.mini { padding: 3px 8px; font-size: 11.5px; }

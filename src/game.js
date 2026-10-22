@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { heightAt, CAMP_POS, rng } from './world.js';
 import { OUTPOSTS, ACTIVE_MAP, safeAt, nearestOutpost } from '../server/shared/terrain.js';
 import { Player, Enemy, dist2d } from './units.js';
-import { CAMPS, UNIQUES, ENEMIES, xpToNext, MAX_LEVEL, makeItem, RARITY, zoneAt } from './data.js';
+import { CAMPS, UNIQUES, ENEMIES, xpToNext, MAX_LEVEL, makeItem, RARITY, zoneAt , randomSlot , travelPrice } from './data.js';
 import { Coop } from './coop.js';
 import { cloneProp, cloneWeapon, makeCharacter, Animator } from './assets.js';
 import { Quests, GIVER } from './quests.js';
@@ -93,9 +93,24 @@ export class Game {
   }
   setupNpcs() {
     this.npcs = [];
-    const MODEL = { smith: 'knight', merchant: 'mage', quest: 'rogue' };
+    // NPCs never use the player classes' models: hooded townsfolk, recoloured per job.
+    const LOOK = {
+      smith: { weapon: 'axe_2h', hide: ['1H_Crossbow'], tint: 0xb0602a, k: 0.7 },
+      merchant: { weapon: 'dagger', hide: ['1H_Crossbow'], tint: 0x7a48c8, k: 0.7 },
+      quest: { hide: [], tint: 0x3a8a5a, k: 0.15 },
+    };
     for (const o of OUTPOSTS) for (const d of o.npcs) {
-      const ch = makeCharacter(MODEL[d.role], { hideMeshes: d.role === 'smith' ? ['Badge_Shield'] : [] });
+      const L = LOOK[d.role];
+      const ch = makeCharacter('rogue', { weapon: L.weapon, hideMeshes: L.hide });
+      const tc = new THREE.Color(L.tint), u = { value: new THREE.Vector4(tc.r, tc.g, tc.b, L.k) };
+      for (const m of ch.materials) {
+        m.onBeforeCompile = (sh) => {
+          sh.uniforms.uNpc = u;
+          sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec4 uNpc;')
+            .replace('#include <map_fragment>', '#include <map_fragment>\n  diffuseColor.rgb = mix(diffuseColor.rgb, uNpc.rgb * (0.45 + dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11)) * 1.6), uNpc.a);');
+        };
+        m.customProgramCacheKey = () => 'npc-tint'; m.needsUpdate = true;
+      }
       const an = new Animator(ch); an.loop('Idle');
       const y = heightAt(d.x, d.z);
       ch.root.position.set(d.x, y, d.z); this.scene.add(ch.root);
@@ -221,6 +236,17 @@ export class Game {
     }
   }
   enemiesNear(p, r) { return this.enemies.filter((e) => e.alive && e.state !== 'spawn' && dist2d(e.pos, p) < r + e.radius); }
+  // Auto-target: a boss nearby always wins, otherwise the closest monster.
+  pickTarget(p, r = 12, exclude = null) {
+    let boss = null, best = null, bd = r, bb = 18;
+    for (const e of this.enemies) {
+      if (!e.alive || e.state === 'spawn' || e === exclude) continue;
+      const d = dist2d(e.pos, p);
+      if (e.isBoss && d < bb) { bb = d; boss = e; }
+      if (d < bd) { bd = d; best = e; }
+    }
+    return boss || best;
+  }
   nearestEnemy(p, r) {
     let best = null, bd = r;
     for (const e of this.enemies) { if (!e.alive || e.state === 'spawn') continue; const d = dist2d(e.pos, p); if (d < bd) { bd = d; best = e; } }
@@ -322,7 +348,7 @@ export class Game {
       sfx.rare();
       drop('gold', Math.round(u.gold * (0.8 + Math.random() * 0.4)));
       const items = u.final ? [3, 2, 2] : [2, Math.random() < 0.5 ? 2 : 1];
-      for (const r of items) drop('item', makeItem(['weapon', 'armor', 'ring'][Math.floor(Math.random() * 3)], e.level, r, this.lootClass()));
+      for (const r of items) { const c = this.lootClass(); drop('item', makeItem(randomSlot(c), e.level, r, c)); }
       drop('potion', 'hp'); drop('potion', 'mp'); drop('potion', 'hp');
       const st = this.uniques.find((x) => x.def.id === u.id); st.enemy = null; st.timer = u.respawn;
       return;
@@ -330,7 +356,7 @@ export class Game {
     drop('gold', Math.round(e.level * 3 * (0.6 + Math.random() * 0.8) + 2));
     if (Math.random() < 0.16) {
       const r = Math.random(); const rar = r < 0.04 ? 2 : r < 0.26 ? 1 : 0;
-      drop('item', makeItem(['weapon', 'armor', 'ring'][Math.floor(Math.random() * 3)], e.level, rar, this.lootClass()));
+      const c = this.lootClass(); drop('item', makeItem(randomSlot(c), e.level, rar, c));
     }
     if (Math.random() < 0.14) drop('potion', Math.random() < 0.55 ? 'hp' : 'mp');
   }
@@ -384,11 +410,11 @@ export class Game {
 
   pickup(l) {
     const s = this.save, p = this.player;
-    if (l.kind === 'gold') { s.gold += l.data; sfx.coin(); this.fx.number(p.pos, `+${l.data} altın`, 'gold'); }
+    if (l.kind === 'gold') { const v = Math.round(l.data * (p.elixir('gold') ? 1.5 : 1)); s.gold += v; sfx.coin(); this.fx.number(p.pos, `+${v} altın`, 'gold'); }
     else if (l.kind === 'potion') { s.potions[l.data] = (s.potions[l.data] || 0) + 1; sfx.pickup(); this.ui.toast(l.data === 'hp' ? '🧪 Can İksiri' : '💧 Mana İksiri', l.data === 'hp' ? '#ff8a96' : '#8ac8ff'); }
     else if (l.kind === 'quest') { sfx.pickup(); this.quests.onQuestItem(l.data); }
     else {
-      if (s.bag.length >= 24) { this.ui.toast('Çanta dolu!', '#ff6a6a'); return false; }
+      if (s.bag.length >= s.bagMax) { this.ui.toast('Çanta dolu!', '#ff6a6a'); return false; }
       sfx.pickup(); this.giveItem(l.data);
     }
     return true;
@@ -396,7 +422,7 @@ export class Game {
   giveItem(it) {
     const s = this.save, p = this.player;
     if (!s.equip[it.slot]) { s.equip[it.slot] = it; p.recalc(); p.updateWeaponLook(); this.ui.toast(`Kuşanıldı: ${it.name}`, RARITY[it.rarity].color); }
-    else if (s.bag.length < 24) { s.bag.push(it); this.ui.toast(`${RARITY[it.rarity].name}: ${it.name}`, RARITY[it.rarity].color); }
+    else if (s.bag.length < s.bagMax) { s.bag.push(it); this.ui.toast(`${RARITY[it.rarity].name}: ${it.name}`, RARITY[it.rarity].color); }
     else { s.gold += 50; this.ui.toast('Çanta dolu, eşya yerine 50 altın aldın', '#ff8a6a'); }
     this.ui.refreshInventory();
   }
@@ -404,6 +430,7 @@ export class Game {
   gainXp(xp, at) {
     const s = this.save, p = this.player;
     if (s.level >= MAX_LEVEL) return;
+    if (p.elixir('xp')) xp = Math.round(xp * 1.5);
     s.xp += xp;
     this.fx.number(at, `+${xp} XP`, 'xp');
     let up = false;
@@ -463,14 +490,30 @@ export class Game {
     }
     const g = this.raycaster.intersectObject(this.world.terrain, false)[0];
     if (g) {
-      p.moveTarget = g.point.clone(); p.autoAttack = false;
+      p.moveTarget = g.point.clone(); p.autoAttack = false; p.path = null; p.walk = null;
       this.moveMarker.visible = true; this.moveMarker.position.copy(g.point).setY(g.point.y + 0.06); this.moveMarker.userData.t = 0;
     }
+  }
+  // Fast travel between the camp and outposts of this map, for a little gold.
+  fastTravel(o) {
+    const p = this.player, s = this.save, price = travelPrice(s.level);
+    if (p.dead) return;
+    if (p.lastDamageT < 6) { this.ui.toast('Savaşırken ışınlanamazsın', '#ff8a6a'); sfx.deny(); return; }
+    if (s.gold < price) { this.ui.toast('Yetersiz altın', '#ff6a6a'); sfx.deny(); return; }
+    s.gold -= price; sfx.coin();
+    this.fx.pillar(p.pos, 0x8a7aff, { h: 10, r: 1.2, dur: 0.9 });
+    p.path = null; p.moveTarget = null; p.autoAttack = false; p.target = null;
+    p.pos.set(o.x + 2, 0, o.z + 2.5); this.world.resolve(p.pos, 0.5);
+    this.fx.pillar(p.pos, 0x8a7aff, { h: 10, r: 1.2, dur: 0.9 }); this.fx.burst(p.pos.clone().setY(p.pos.y + 1), 40, 0x9fe8ff, { speed: 5, up: 5, size: 0.4 });
+    this.ui.toast(`⚡ ${o.name} (-${price} 🪙)`, '#c9bfff');
+    saveGame(s, p);
   }
   attackButton() {
     const p = this.player; if (p.dead) return;
     if (p.safe) { this.ui.toast('Güvenli bölgede savaşamazsın', '#9fe0ff'); return; }
-    if (!p.target || !p.target.alive || dist2d(p.pos, p.target.pos) > 14) p.target = this.nearestEnemy(p.pos, 12);
+    const cur = p.target, dc = cur?.alive ? dist2d(p.pos, cur.pos) : 999;
+    const keep = cur?.alive && ((cur.isBoss && dc < 18) || dc <= p.cls.range + cur.radius + 0.6);
+    if (!keep) p.target = this.pickTarget(p.pos);
     if (p.target) { p.autoAttack = true; p.moveTarget = null; }
     else { this.ui.toast('Yakında düşman yok', '#ffcf6a'); }
   }
@@ -536,8 +579,8 @@ export class Game {
     } else this.targetRing.visible = false;
     this.updateGuide(rawDt);
     if (this.moveMarker.visible) {
-      const m = this.moveMarker; m.userData.t += dt; m.scale.setScalar(1 + m.userData.t * 2); m.material.opacity = 1 - m.userData.t * 1.6;
-      if (m.userData.t > 0.6 || !p.moveTarget) m.visible = false;
+      const m = this.moveMarker; m.userData.t += dt; if (p.path?.length && m.userData.t > 0.6) m.userData.t = 0; m.scale.setScalar(1 + m.userData.t * 2); m.material.opacity = 1 - m.userData.t * 1.6;
+      if ((m.userData.t > 0.6 && !p.path) || !p.moveTarget) { m.visible = false; this.walkDest = null; }
     }
 
     this.world.update(dt, p.pos, this.fx);
@@ -631,7 +674,7 @@ export class Game {
       if (!p.dead && l.t > 0.5 && !l.pending && !l.taken && dist2d(l.pos, p.pos) < 2.4) {
         if (l.shared) {
           // Shared loot: first come, first served — the host decides.
-          if (l.kind === 'item' && this.save.bag.length >= 24 && this.save.equip[l.data.slot]) { if (!l.fullWarn) { l.fullWarn = true; this.ui.toast('Çanta dolu!', '#ff6a6a'); } }
+          if (l.kind === 'item' && this.save.bag.length >= this.save.bagMax && this.save.equip[l.data.slot]) { if (!l.fullWarn) { l.fullWarn = true; this.ui.toast('Çanta dolu!', '#ff6a6a'); } }
           else if (this.coop.isHost) this.hostPick(l.lid, this.coop.id);
           else { this.coop.send({ t: 'pick', to: this.coop.hostId, lid: l.lid }); l.pending = this.time; }
         } else if (this.pickup(l)) this.flyLoot(l);

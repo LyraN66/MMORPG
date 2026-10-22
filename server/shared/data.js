@@ -175,23 +175,23 @@ export const RARITY = [
 ];
 
 const TIERS = [
-  { lv: 1, sword: 'Paslı Kılıç', staff: 'Meşe Asa', armor: 'Deri Yelek', ring: 'Bakır Yüzük' },
-  { lv: 4, sword: 'Demir Kılıç', staff: 'Kemik Asa', armor: 'Zincir Zırh', ring: 'Gümüş Yüzük' },
-  { lv: 8, sword: 'Çelik Kılıç', staff: 'Kristal Asa', armor: 'Plaka Zırh', ring: 'Altın Yüzük' },
-  { lv: 12, sword: 'Kemikkıran', staff: 'Ruh Asası', armor: 'Lanetli Zırh', ring: 'Ruh Yüzüğü' },
-  { lv: 16, sword: 'Bataklık Palası', staff: 'Sarmaşık Asa', armor: 'Pullu Zırh', ring: 'Yosun Yüzüğü' },
-  { lv: 20, sword: 'Zehirdiş', staff: 'Zümrüt Asa', armor: 'Kertenkele Zırhı', ring: 'Zümrüt Yüzük' },
-  { lv: 25, sword: 'Kum Kılıcı', staff: 'Güneş Asası', armor: 'Bronz Zırh', ring: 'Kehribar Yüzük' },
-  { lv: 30, sword: 'Firavun Palası', staff: 'Akrep Asası', armor: 'Altın Pullu Zırh', ring: 'Firavun Mührü' },
-  { lv: 36, sword: 'Buzkesen', staff: 'Kırağı Asası', armor: 'Kürk Zırh', ring: 'Buz Yüzüğü' },
-  { lv: 42, sword: 'Ayaz Kılıcı', staff: 'Kutup Asası', armor: 'Buzul Zırhı', ring: 'Kar Kristali' },
-  { lv: 48, sword: 'Lav Kılıcı', staff: 'Magma Asası', armor: 'Obsidyen Zırh', ring: 'Kor Yüzüğü' },
-  { lv: 55, sword: 'Volkan Palası', staff: 'Yanardağ Asası', armor: 'Ateştaşı Zırh', ring: 'Alev Mührü' },
-  { lv: 62, sword: 'Fırtına Kılıcı', staff: 'Yıldırım Asası', armor: 'Gök Zırhı', ring: 'Şimşek Yüzüğü' },
-  { lv: 70, sword: 'Ejder Dişi', staff: 'Ejder Asası', armor: 'Ejder Pulu Zırh', ring: 'Ejder Gözü' },
-  { lv: 78, sword: 'Gölge Kılıcı', staff: 'Hiçlik Asası', armor: 'Gölge Zırhı', ring: 'Hiçlik Yüzüğü' },
-  { lv: 86, sword: 'Yıldız Kılıcı', staff: 'Göksel Asa', armor: 'Yıldız Zırhı', ring: 'Yıldız Yüzüğü' },
-  { lv: 94, sword: 'Efsane Kılıcı', staff: 'Efsane Asası', armor: 'Efsane Zırhı', ring: 'Efsane Yüzüğü' },
+  { lv: 1, mat: 'Paslı', sword: 'Paslı Kılıç', staff: 'Meşe Asa', armor: 'Deri Yelek', ring: 'Bakır Yüzük' },
+  { lv: 4, mat: 'Demir', sword: 'Demir Kılıç', staff: 'Kemik Asa', armor: 'Zincir Zırh', ring: 'Gümüş Yüzük' },
+  { lv: 8, mat: 'Çelik', sword: 'Çelik Kılıç', staff: 'Kristal Asa', armor: 'Plaka Zırh', ring: 'Altın Yüzük' },
+  { lv: 12, mat: 'Kemik', sword: 'Kemikkıran', staff: 'Ruh Asası', armor: 'Lanetli Zırh', ring: 'Ruh Yüzüğü' },
+  { lv: 16, mat: 'Bataklık', sword: 'Bataklık Palası', staff: 'Sarmaşık Asa', armor: 'Pullu Zırh', ring: 'Yosun Yüzüğü' },
+  { lv: 20, mat: 'Zehirli', sword: 'Zehirdiş', staff: 'Zümrüt Asa', armor: 'Kertenkele Zırhı', ring: 'Zümrüt Yüzük' },
+  { lv: 25, mat: 'Kum', sword: 'Kum Kılıcı', staff: 'Güneş Asası', armor: 'Bronz Zırh', ring: 'Kehribar Yüzük' },
+  { lv: 30, mat: 'Firavun', sword: 'Firavun Palası', staff: 'Akrep Asası', armor: 'Altın Pullu Zırh', ring: 'Firavun Mührü' },
+  { lv: 36, mat: 'Buz', sword: 'Buzkesen', staff: 'Kırağı Asası', armor: 'Kürk Zırh', ring: 'Buz Yüzüğü' },
+  { lv: 42, mat: 'Ayaz', sword: 'Ayaz Kılıcı', staff: 'Kutup Asası', armor: 'Buzul Zırhı', ring: 'Kar Kristali' },
+  { lv: 48, mat: 'Lav', sword: 'Lav Kılıcı', staff: 'Magma Asası', armor: 'Obsidyen Zırh', ring: 'Kor Yüzüğü' },
+  { lv: 55, mat: 'Volkan', sword: 'Volkan Palası', staff: 'Yanardağ Asası', armor: 'Ateştaşı Zırh', ring: 'Alev Mührü' },
+  { lv: 62, mat: 'Fırtına', sword: 'Fırtına Kılıcı', staff: 'Yıldırım Asası', armor: 'Gök Zırhı', ring: 'Şimşek Yüzüğü' },
+  { lv: 70, mat: 'Ejder', sword: 'Ejder Dişi', staff: 'Ejder Asası', armor: 'Ejder Pulu Zırh', ring: 'Ejder Gözü' },
+  { lv: 78, mat: 'Gölge', sword: 'Gölge Kılıcı', staff: 'Hiçlik Asası', armor: 'Gölge Zırhı', ring: 'Hiçlik Yüzüğü' },
+  { lv: 86, mat: 'Yıldız', sword: 'Yıldız Kılıcı', staff: 'Göksel Asa', armor: 'Yıldız Zırhı', ring: 'Yıldız Yüzüğü' },
+  { lv: 94, mat: 'Efsane', sword: 'Efsane Kılıcı', staff: 'Efsane Asası', armor: 'Efsane Zırhı', ring: 'Efsane Yüzüğü' },
 ];
 export const tierFor = (lv) => [...TIERS].reverse().find((t) => lv >= t.lv) || TIERS[0];
 
@@ -200,28 +200,74 @@ export const PLUS_CHANCE = [1, 1, 0.95, 0.85, 0.7, 0.55, 0.45, 0.35, 0.25, 0.16,
 export const plusCost = (item) => Math.floor(40 * Math.pow(item.plus + 1, 1.9) * (1 + item.lv / 4));
 
 let uid = 1;
+// Equipment slots. Mages have no shield. Each slot gives its own stats (per item tier level, times rarity).
+export const SLOTS = [
+  { id: 'weapon', name: 'Silah', icon: '🗡️' },
+  { id: 'shield', name: 'Kalkan', icon: '🛡️', knightOnly: true },
+  { id: 'chest', name: 'Üst Zırh', icon: '🥋' },
+  { id: 'legs', name: 'Alt Zırh', icon: '👖' },
+  { id: 'ring', name: 'Yüzük', icon: '💍' },
+  { id: 'necklace', name: 'Kolye', icon: '📿' },
+  { id: 'bracelet', name: 'Bileklik', icon: '🔗' },
+];
+export const SLOT = Object.fromEntries(SLOTS.map((s) => [s.id, s]));
+export const slotsFor = (cls) => SLOTS.filter((s) => !(s.knightOnly && cls === 'mage'));
+// Random loot slot the class can use (weapons a bit more common).
+export function randomSlot(cls) {
+  const pool = ['weapon', 'weapon', ...slotsFor(cls).map((s) => s.id).filter((id) => id !== 'weapon')];
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+const SLOT_NOUN = { shield: 'Kalkan', legs: 'Bacaklık', necklace: 'Kolye', bracelet: 'Bileklik' };
 export function makeItem(slot, lv, rarity, cls) {
+  if (slot === 'armor') slot = 'chest';
   const t = tierFor(lv);
   const r = RARITY[rarity];
-  const tierLv = t.lv;
-  const it = { uid: Date.now().toString(36) + (uid++), slot, lv: tierLv, rarity, plus: 0 };
+  const L = t.lv, k = r.mul;
+  const it = { uid: Date.now().toString(36) + (uid++), slot, lv: L, rarity, plus: 0 };
+  const R = Math.round;
   if (slot === 'weapon') {
     const wt = cls === 'mage' ? 'staff' : 'sword';
-    it.name = t[wt]; it.wtype = wt; it.atk = Math.round((6 + tierLv * 3.2) * r.mul);
-  } else if (slot === 'armor') {
-    it.name = t.armor; it.def = Math.round((3 + tierLv * 2.2) * r.mul);
-  } else {
-    it.name = t.ring; it.hp = Math.round((15 + tierLv * 9) * r.mul);
-  }
+    it.name = t[wt]; it.wtype = wt; it.atk = R((6 + L * 3.2) * k);
+  } else if (slot === 'chest') { it.name = t.armor; it.def = R((3 + L * 2.2) * k); }
+  else if (slot === 'ring') { it.name = t.ring; it.hp = R((15 + L * 9) * k); }
+  else if (slot === 'shield') { it.name = `${t.mat} ${SLOT_NOUN.shield}`; it.def = R((2 + L * 1.4) * k); it.hp = R((5 + L * 3) * k); }
+  else if (slot === 'legs') { it.name = `${t.mat} ${SLOT_NOUN.legs}`; it.def = R((2 + L * 1.5) * k); }
+  else if (slot === 'necklace') { it.name = `${t.mat} ${SLOT_NOUN.necklace}`; it.mp = R((10 + L * 4) * k); it.hp = R((8 + L * 4) * k); }
+  else if (slot === 'bracelet') { it.name = `${t.mat} ${SLOT_NOUN.bracelet}`; it.atk = R((2 + L * 1.2) * k); }
   return it;
 }
 export const itemStat = (it) => {
-  const m = 1 + it.plus * 0.12;
-  return { atk: Math.round((it.atk || 0) * m), def: Math.round((it.def || 0) * m), hp: Math.round((it.hp || 0) * m) };
+  const m = 1 + it.plus * 0.12, R = Math.round;
+  return { atk: R((it.atk || 0) * m), def: R((it.def || 0) * m), hp: R((it.hp || 0) * m), mp: R((it.mp || 0) * m) };
 };
+// One number to compare two items of a slot.
+export const itemScore = (it) => { const s = itemStat(it); return s.atk * 3 + s.def * 2 + s.hp * 0.35 + s.mp * 0.3; };
+export const STAT_NAMES = { atk: 'Saldırı', def: 'Savunma', hp: 'Can', mp: 'Mana' };
+// Old saves had one 'armor' slot: it became the chest piece.
+export function migrateSave(s) {
+  if (!s) return s;
+  s.equip ||= {};
+  if (s.equip.armor) { s.equip.chest ||= s.equip.armor; delete s.equip.armor; }
+  for (const sl of SLOTS) if (!(sl.id in s.equip)) s.equip[sl.id] = null;
+  for (const it of [...(s.bag || []), ...Object.values(s.equip)]) if (it && it.slot === 'armor') it.slot = 'chest';
+  s.bagMax ||= 24; s.buffs ||= {};
+  return s;
+}
 export const sellPrice = (it) => Math.floor((8 + it.lv * 6) * (1 + it.rarity * 1.5) * (1 + it.plus * 0.5));
 
 export const SHOP = [
   { id: 'hp', name: 'Can İksiri', icon: '🧪', price: 12, desc: 'Canın %40\'ını yeniler.' },
   { id: 'mp', name: 'Mana İksiri', icon: '💧', price: 12, desc: 'Mananın %45\'ini yeniler.' },
 ];
+export const potionPrice = (lv) => Math.round(10 + lv * 2);
+// Timed elixirs (minutes of real play) bought from merchants.
+export const ELIXIRS = [
+  { id: 'xp', name: 'Bilgelik İksiri', icon: '📘', desc: '%50 daha fazla deneyim', mins: 15, base: 80, per: 22 },
+  { id: 'atk', name: 'Öfke İksiri', icon: '🔥', desc: '%20 daha fazla saldırı', mins: 10, base: 60, per: 18 },
+  { id: 'def', name: 'Taş Deri İksiri', icon: '🪨', desc: '%20 daha fazla savunma', mins: 10, base: 60, per: 18 },
+  { id: 'gold', name: 'Talih İksiri', icon: '🍀', desc: '%50 daha fazla altın', mins: 15, base: 70, per: 20 },
+];
+export const elixirPrice = (e, lv) => Math.round(e.base + e.per * lv);
+export const chestPrice = (lv) => Math.round(60 + lv * 35);
+export const bagPrice = (max) => [400, 1500, 5000, 15000][Math.round((max - 24) / 6)] ?? null; // 24 → 48 slots
+export const travelPrice = (lv) => Math.round(5 + lv * 1.5);
