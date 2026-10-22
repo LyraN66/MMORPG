@@ -86,10 +86,9 @@ jobs:
             --notes "$NOTES" \
             --latest
 
-  # Web version on GitHub Pages: enable Pages (Source: GitHub Actions) and set repo variable PAGES_ENABLED=true.
+  # Web version on GitHub Pages (repo Settings → Pages → Source: GitHub Actions). Never fails the build.
   pages:
     needs: build
-    if: vars.PAGES_ENABLED == 'true'
     runs-on: ubuntu-latest
     continue-on-error: true
     environment:
