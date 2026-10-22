@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { heightAt, CAMP_POS, rng } from './world.js';
+import { OUTPOSTS, safeAt, nearestOutpost } from '../server/shared/terrain.js';
 import { Player, Enemy, dist2d } from './units.js';
 import { CAMPS, UNIQUES, ENEMIES, xpToNext, MAX_LEVEL, makeItem, RARITY, zoneAt } from './data.js';
 import { Coop } from './coop.js';
@@ -92,17 +93,16 @@ export class Game {
   }
   setupNpcs() {
     this.npcs = [];
-    const mk = (model, x, z, yaw, name, role, hide) => {
-      const ch = makeCharacter(model, { hideMeshes: hide });
-      const an = new Animator(ch); an.loop(role === 'smith' ? 'Idle' : 'Idle');
-      ch.root.position.set(x, heightAt(x, z), z); ch.root.rotation.y = yaw; this.scene.add(ch.root);
-      const ring = this.fx.glow(role === 'smith' ? 0xffb24a : role === 'quest' ? 0xffe08a : 0x6ad1ff, 2.2); ring.position.set(x, heightAt(x, z) + 3.2, z); this.scene.add(ring);
-      const npc = { ch, an, pos: new THREE.Vector3(x, heightAt(x, z), z), name, role, ring };
+    const MODEL = { smith: 'knight', merchant: 'mage', quest: 'rogue' };
+    for (const o of OUTPOSTS) for (const d of o.npcs) {
+      const ch = makeCharacter(MODEL[d.role], { hideMeshes: d.role === 'smith' ? ['Badge_Shield'] : [] });
+      const an = new Animator(ch); an.loop('Idle');
+      const y = heightAt(d.x, d.z);
+      ch.root.position.set(d.x, y, d.z); this.scene.add(ch.root);
+      const ring = this.fx.glow(d.role === 'smith' ? 0xffb24a : d.role === 'quest' ? 0xffe08a : 0x6ad1ff, 2.2); ring.position.set(d.x, y + 3.2, d.z); this.scene.add(ring);
+      const npc = { ch, an, pos: new THREE.Vector3(d.x, y, d.z), name: d.name, role: d.role, ring, outpost: o };
       this.npcs.push(npc); this.ui.addNpcPlate(npc);
-    };
-    mk('knight', 7.5, 57.3, 0, 'Demirci Haldun', 'smith', ['Badge_Shield']);
-    mk('mage', -7.5, 55.2, 0, 'Tüccar Zerrin', 'merchant', []);
-    mk('rogue', GIVER.pos[0], GIVER.pos[1], 0, GIVER.name, 'quest', []);
+    }
   }
   makeTargetRing() {
     const m = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 40), new THREE.MeshBasicMaterial({ color: 0xff4a4a, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide }));
@@ -168,7 +168,7 @@ export class Game {
   players() { return this.coop ? [this.player, ...[...this.coop.remotes.values()].filter((r) => !r.gone && !r.fresh)] : [this.player]; }
   nearestPlayer(pos) {
     let best = null, bd = Infinity;
-    for (const q of this.players()) { if (q.dead) continue; const d = dist2d(q.pos, pos); if (d < bd) { bd = d; best = q; } }
+    for (const q of this.players()) { if (q.dead || safeAt(q.pos.x, q.pos.z)) continue; const d = dist2d(q.pos, pos); if (d < bd) { bd = d; best = q; } }
     return best;
   }
   announceAll(text, kind) { this.ui.announce(text, kind); if (this.coop?.isHost) this.coop.send({ t: 'ann', x: text, k: kind }); }
@@ -211,6 +211,8 @@ export class Game {
 
   damage(from, to, mult, opts = {}) {
     const isPlayer = from === this.player;
+    // No fighting inside camps/outposts, in either direction.
+    if ((to.isPlayer && safeAt(to.pos.x, to.pos.z)) || (from.isPlayer && safeAt(from.pos.x, from.pos.z))) return 0;
     const atk = isPlayer ? from.effAtk : from.atk;
     const def = to.isEnemy ? to.def : to === this.player ? to.effDef : (to.def || 5);
     let dmg = atk * mult * (60 / (60 + def * 3)) * (0.9 + Math.random() * 0.2);
@@ -392,7 +394,11 @@ export class Game {
   }
   revive() {
     this.ui.death(false);
-    this.player.revive(this.campPos.clone().add(new THREE.Vector3(0, 0, -4)));
+    const o = nearestOutpost(this.player.pos.x, this.player.pos.z);
+    const at = o.id === 'camp' ? this.campPos.clone().add(new THREE.Vector3(0, 0, -4)) : new THREE.Vector3(o.x, 0, o.z - 3.5);
+    this.world.resolve(at, 0.6);
+    this.player.revive(at);
+    this.ui.toast(`${o.name}'nda dirildin`, '#bfe3ff');
     for (const e of this.enemies) if (!e.remote && (e.state === 'chase' || e.state === 'cast') && (!e.tgt || e.tgt === this.player)) { e.state = 'return'; e.tgt = null; }
   }
 
@@ -429,6 +435,7 @@ export class Game {
   }
   attackButton() {
     const p = this.player; if (p.dead) return;
+    if (p.safe) { this.ui.toast('Güvenli bölgede savaşamazsın', '#9fe0ff'); return; }
     if (!p.target || !p.target.alive || dist2d(p.pos, p.target.pos) > 14) p.target = this.nearestEnemy(p.pos, 12);
     if (p.target) { p.autoAttack = true; p.moveTarget = null; }
     else { this.ui.toast('Yakında düşman yok', '#ffcf6a'); }

@@ -3,7 +3,7 @@
 // from the snapshots sent here and report the damage they deal.
 import fs from 'node:fs';
 import { ENEMIES, UNIQUES, CAMPS, makeItem } from './shared/data.js';
-import { generateLayout, heightAt, rng } from './shared/terrain.js';
+import { generateLayout, heightAt, rng, safeAt } from './shared/terrain.js';
 
 const CLIPS = JSON.parse(fs.readFileSync(new URL('./shared/clips.json', import.meta.url), 'utf8'));
 const TYPES = ['minion', 'rogue', 'warrior', 'mage'];
@@ -75,7 +75,7 @@ class Enemy {
     if (this.state === 'spawn') { if (this.stateT <= 0) this.state = 'idle'; return; }
     if (this.stunT > 0) { this.anim.loop('Idle', 0.3); return; }
 
-    if (this.tgt && (this.tgt.dead || this.tgt.gone)) this.tgt = null;
+    if (this.tgt && (this.tgt.dead || this.tgt.gone || safeAt(this.tgt.pos.x, this.tgt.pos.z))) this.tgt = null;
     const p = this.tgt || sim.nearestPlayer(this.pos);
     const dp = !p || p.dead ? 999 : dist2d(this.pos, p.pos);
     const dh = dist2d(this.pos, this.home);
@@ -273,10 +273,10 @@ export class Sim {
     p.pos.x = m.x; p.pos.y = m.y; p.pos.z = m.z; p.dead = !!m.dd; p.def = m.df || 5; p.level = m.lv || p.level; p.fresh = false;
     if (m.nm) p.name = m.nm;
   }
-  alivePlayers() { return [...this.players.values()].filter((p) => !p.dead && !p.fresh); }
+  alivePlayers() { return [...this.players.values()].filter((p) => !p.dead && !p.fresh && !safeAt(p.pos.x, p.pos.z)); }
   nearestPlayer(pos) {
     let best = null, bd = Infinity;
-    for (const p of this.players.values()) { if (p.dead || p.fresh) continue; const d = dist2d(p.pos, pos); if (d < bd) { bd = d; best = p; } }
+    for (const p of this.players.values()) { if (p.dead || p.fresh || safeAt(p.pos.x, p.pos.z)) continue; const d = dist2d(p.pos, pos); if (d < bd) { bd = d; best = p; } }
     return best;
   }
   welcome(id) {
@@ -288,11 +288,12 @@ export class Sim {
   // ---------- combat ----------
   onDamage(id, m) {
     const e = this.enemies.get(m.id), p = this.players.get(id);
-    if (!e || !e.alive || !p || p.dead) return;
+    if (!e || !e.alive || !p || p.dead || safeAt(p.pos.x, p.pos.z)) return;
     const d = Math.max(1, Math.min(100000, Math.round(+m.d || 0)));
     e.takeHit(d, p, { knock: +m.k || 0, stun: Math.min(3, +m.st || 0), slow: Math.min(5, +m.sl || 0) });
   }
   damagePlayer(e, p, mult) {
+    if (safeAt(p.pos.x, p.pos.z)) return;
     const dmg = Math.max(1, Math.round(e.atk * mult * (60 / (60 + (p.def || 5) * 3)) * (0.9 + Math.random() * 0.2)));
     this.send(p.id, { t: 'hurt', to: p.id, d: dmg, e: e.id });
   }

@@ -77,7 +77,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 #target .nm, #bossbar .nm { font: 600 13px var(--title); text-shadow: 0 1px 4px #000; margin-bottom: 3px; }
 #target .bar { width: min(220px, 36vw); height: 12px; } #target .bar i { background: linear-gradient(180deg, #ff7a5a, #b82a1a); }
 .lv { color: var(--gold2); font-size: .85em; }
-#bossbar { position: absolute; top: calc(12px + var(--st)); left: 50%; transform: translateX(-50%); text-align: center; width: min(440px, 52vw); }
+#bossbar { position: absolute; top: calc(12px + var(--st)); left: 50%; transform: translateX(-50%); text-align: center; width: max(200px, min(440px, calc(100vw - 560px))); }
+#target { max-width: max(180px, calc(100vw - 560px)); }
 #bossbar .nm { color: #ffcf8a; font-size: 15px; letter-spacing: .06em; }
 #bossbar .bar { width: 100%; height: 16px; border: 1px solid #5a3a1a; box-shadow: 0 0 0 1px var(--gold), 0 0 18px rgba(255,60,30,.35); }
 #bossbar .bar b { position: absolute; inset: 0; background: #fff3; transition: width .9s .3s; }

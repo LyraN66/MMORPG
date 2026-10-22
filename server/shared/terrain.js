@@ -5,6 +5,19 @@ import { CAMPS } from './data.js';
 export const BOUNDS = { minX: -46, maxX: 46, minZ: -98, maxZ: 76 };
 export const CAMP = [0, 63];
 export const CRYPT = [0, -93];
+// Safe zones: the starting camp and an outpost in each dangerous zone. Each has a quest giver,
+// a blacksmith and a merchant; enemies won't fight players standing inside.
+export const OUTPOSTS = [
+  { id: 'camp', name: 'Sürgün Kampı', x: 0, z: 63, r: 17,
+    npcs: [{ role: 'smith', name: 'Demirci Haldun', x: 7.5, z: 57.3 }, { role: 'merchant', name: 'Tüccar Zerrin', x: -7.5, z: 55.2 }, { role: 'quest', name: 'Gözcü Kaan', x: -3.2, z: 52.6 }] },
+  { id: 'graves', name: 'Mezarlık Karakolu', x: 3, z: 4.5, r: 9,
+    npcs: [{ role: 'quest', name: 'Gözcü Ayla', x: 0, z: 1.5 }, { role: 'smith', name: 'Demirci Bora', x: 6.5, z: 2 }, { role: 'merchant', name: 'Tüccar Nazlı', x: -0.5, z: 7.5 }] },
+  { id: 'temple', name: 'Tapınak Karakolu', x: -4.5, z: -33, r: 9,
+    npcs: [{ role: 'quest', name: 'Gözcü Tarık', x: -7.5, z: -36 }, { role: 'smith', name: 'Demirci Kerem', x: -1, z: -35.5 }, { role: 'merchant', name: 'Tüccar Leyla', x: -8, z: -30 }] },
+];
+export const safeAt = (x, z) => OUTPOSTS.find((o) => Math.hypot(x - o.x, z - o.z) < o.r) || null;
+export const nearestOutpost = (x, z) => OUTPOSTS.reduce((a, o) => (Math.hypot(x - o.x, z - o.z) < Math.hypot(x - a.x, z - a.z) ? o : a));
+
 export const smoothstep = (x, a, b) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 export const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
@@ -67,6 +80,7 @@ export function generateLayout() {
       if (Math.hypot(x, z - 63) < 14) return false;
       if (Math.hypot(x, z + 86) < 14) return false;
       if (Math.hypot(x + 24, z + 8) < 8) return false; // unique arena
+      for (const o of OUTPOSTS) if (o.id !== 'camp' && Math.hypot(x - o.x, z - o.z) < o.r + 1 + r) return false;
       return !occupied.some((o) => Math.hypot(o.x - x, o.z - z) < o.r + r);
     };
     const put = (name, x, z, { s = 1, ry = R() * Math.PI * 2, col = 0, noShadow = false, y } = {}) => {
@@ -116,6 +130,17 @@ export function generateLayout() {
     addCollider(0, 63, 1.4);
     addFlame(0, heightAt(0, 63) + 0.3, 63, 1.6, true);
     for (const [x, z] of [[-4, 54], [4, 54], [-4, 72], [4, 72]]) addFlame(x, heightAt(x, z) + 1.05, z, 0.5, false);
+
+    // --- Outposts ---
+    for (const o of OUTPOSTS) {
+      if (o.id === 'camp') continue;
+      for (let i = 0; i < 9; i++) { const a = i / 9 * Math.PI * 2; put(['rock_single_A', 'rock_single_C', 'rock_single_D'][i % 3], o.x + Math.cos(a) * 1.3, o.z + Math.sin(a) * 1.3, { s: 2.6, noShadow: true }); }
+      addCollider(o.x, o.z, 1.4); addFlame(o.x, heightAt(o.x, o.z) + 0.3, o.z, 1.6, true);
+      for (const [dx, dz] of [[-5, -5], [5, -5], [-5, 5], [5, 5]]) { put('torch_lit', o.x + dx, o.z + dz, { ry: 0 }); addFlame(o.x + dx, heightAt(o.x + dx, o.z + dz) + 1.05, o.z + dz, 0.5, false); }
+      put('banner_patternA_red', o.x - 7, o.z, { ry: Math.PI / 2 }); put('banner_shield_red', o.x + 7.5, o.z + 1, { ry: -Math.PI / 2 });
+      put('crates_stacked', o.x + 6.5, o.z + 6, { ry: 0.4, col: 1.1 }); put('barrel_large', o.x - 6.5, o.z + 5.5, { ry: 0, col: 0.9 });
+      put('barrel_small_stack', o.x - 6.5, o.z - 4, { ry: 1.2, col: 0.9 }); put('chest_gold', o.x + 2.5, o.z - 6, { ry: 0.2, col: 0.8 });
+    }
 
     // --- Forest zone ---
     scatter(['tree_pine_orange_large', 'tree_pine_yellow_large', 'tree_pine_orange_medium', 'tree_pine_yellow_medium'], 95, 12, 50, { col: 0.8, sv: 0.4, gap: 1.2 });

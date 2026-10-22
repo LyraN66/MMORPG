@@ -59,8 +59,8 @@ export const UNIQUES = {
 // Enemy spawn camps: [x, z, type, count, levelMin, levelMax]
 export const CAMPS = [
   [-14, 40, 'minion', 3, 1, 2], [12, 34, 'minion', 3, 1, 2], [-26, 24, 'minion', 4, 2, 3], [22, 18, 'minion', 3, 2, 4],
-  [0, 22, 'minion', 3, 2, 3], [-6, 13, 'rogue', 2, 3, 4], [30, 44, 'minion', 2, 1, 2],
-  [-30, 2, 'rogue', 3, 4, 5], [18, 0, 'minion', 3, 4, 5], [4, -8, 'rogue', 3, 5, 6], [-16, -20, 'mage', 2, 5, 7],
+  [0, 22, 'minion', 3, 2, 3], [-10, 16, 'rogue', 2, 3, 4], [30, 44, 'minion', 2, 1, 2],
+  [-30, 2, 'rogue', 3, 4, 5], [18, 0, 'minion', 3, 4, 5], [7, -12, 'rogue', 3, 5, 6], [-16, -20, 'mage', 2, 5, 7],
   [26, -18, 'rogue', 3, 6, 7], [-34, -26, 'minion', 4, 6, 7], [10, -26, 'mage', 2, 6, 8],
   [-22, -42, 'warrior', 2, 8, 9], [20, -44, 'warrior', 2, 8, 9], [0, -50, 'mage', 3, 9, 10], [-30, -60, 'warrior', 3, 10, 11],
   [28, -62, 'mage', 2, 10, 11], [-10, -68, 'warrior', 2, 11, 12], [14, -72, 'warrior', 2, 11, 12],

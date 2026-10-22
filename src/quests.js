@@ -6,7 +6,11 @@ import { dist2d } from './units.js';
 import { sfx } from './audio.js';
 import { saveGame } from './save.js';
 
-export const GIVER = { name: 'Gözcü Kaan', pos: [-3.2, 52.6] };
+import { OUTPOSTS } from '../server/shared/terrain.js';
+// Every outpost has a scout who hands out and accepts quests.
+export const GIVERS = OUTPOSTS.flatMap((o) => o.npcs.filter((n) => n.role === 'quest').map((n) => ({ name: n.name, pos: [n.x, n.z] })));
+export const GIVER = GIVERS[0];
+export const nearestGiver = (x, z) => GIVERS.reduce((a, g) => (Math.hypot(g.pos[0] - x, g.pos[1] - z) < Math.hypot(a.pos[0] - x, a.pos[1] - z) ? g : a));
 
 // Main story chain, handed out one at a time by Gözcü Kaan.
 export const QUESTS = [
@@ -151,7 +155,7 @@ export class Quests {
     this.g.ui.toast(`${label} ${st.prog}/${q.count}`, '#ffe08a');
     if (st.prog >= q.count) {
       sfx.rare();
-      this.g.ui.announce(`✔ ${q.name} — ${GIVER.name}'a dön`, 'victory');
+      this.g.ui.announce(`✔ ${q.name} — teslim için bir Gözcü'ye git`, 'victory');
       if (isMain) this.syncNodes();
     }
   }
@@ -263,8 +267,9 @@ export class Quests {
   // ---------- map targets ----------
   targets() {
     const out = [];
+    const pp = this.g.player.pos, gv = nearestGiver(pp.x, pp.z);
     const add = (q, done) => {
-      if (done) { out.push({ x: GIVER.pos[0], z: GIVER.pos[1], r: 0, kind: 'turnin', label: q.name }); return; }
+      if (done) { out.push({ x: gv.pos[0], z: gv.pos[1], r: 0, kind: 'turnin', label: q.name }); return; }
       if (q.type === 'kill' || q.type === 'drop') {
         const types = q.type === 'kill' ? [q.target] : q.from;
         const lv = this.g.save.level;
@@ -280,7 +285,7 @@ export class Quests {
     };
     const m = this.main; if (m) add(m, this.mainDone);
     const b = this.st.bounty; if (b) add(b, this.bountyDone);
-    if (!m && !b && this.npcMark() === '!') out.push({ x: GIVER.pos[0], z: GIVER.pos[1], r: 0, kind: 'turnin', label: 'Yeni görev' });
+    if (!m && !b && this.npcMark() === '!') out.push({ x: gv.pos[0], z: gv.pos[1], r: 0, kind: 'turnin', label: 'Yeni görev' });
     return out;
   }
 }

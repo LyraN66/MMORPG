@@ -4,7 +4,8 @@ import { sfx, soundOn, setSound } from './audio.js';
 import { saveGame } from './save.js';
 import { BOUNDS, roadX, CAMP_POS, CRYPT_POS } from './world.js';
 import { dist2d } from './units.js';
-import { QUESTS, GIVER, questReward, objectiveText } from './quests.js';
+import { QUESTS, GIVER, GIVERS, questReward, objectiveText } from './quests.js';
+import { OUTPOSTS } from '../server/shared/terrain.js';
 import { UNIQUES, ZONES, CAMPS } from './data.js';
 
 const $ = (s) => document.querySelector(s);
@@ -106,7 +107,9 @@ export class UI {
     for (const [e, pl] of this.plates) {
       const d = dist2d(e.pos, p.pos);
       const show = e.alive && e.root.visible && e.state !== 'spawn' && d < (e.isBoss ? 40 : 22);
-      const sc = show && this.project(e.pos, 2.75 * e.scale + 0.2);
+      let sc = show && this.project(e.pos, 2.75 * e.scale + 0.2);
+      // The boss bar already names the boss; plates that would land on the top HUD strip are hidden.
+      if (sc && (sc[1] < 78 || (e.isBoss && this.bossShown === e))) sc = null;
       if (!sc) { if (pl.shown) { pl.el.style.display = 'none'; pl.shown = false; } continue; }
       if (!pl.shown) { pl.el.style.display = ''; pl.shown = true; }
       pl.el.style.transform = `translate(${sc[0] | 0}px, ${sc[1] | 0}px) translate(-50%, -100%)`;
@@ -192,7 +195,7 @@ export class UI {
     }
     // boss bar: shows when a unique is targeted or fighting nearby
     const boss = g.enemies.find((e) => e.isBoss && e.alive && (p.target === e || (e.state !== 'idle' && e.state !== 'wander' && dist2d(e.pos, p.pos) < 30)));
-    const bb = $('#bossbar'); bb.classList.toggle('hidden', !boss);
+    const bb = $('#bossbar'); bb.classList.toggle('hidden', !boss); this.bossShown = boss || null;
     if (boss) {
       bb.querySelector('.nm').textContent = `${boss.name}  ·  Sv.${boss.level}`;
       bb.querySelector('i').style.width = (boss.hp / boss.maxHp) * 100 + '%';
@@ -246,7 +249,8 @@ export class UI {
       else if (t.kind === 'node') { c.fillStyle = '#ffe08a'; c.font = `${11 * D}px sans-serif`; c.fillText('✦', tx(t.x), tz(t.z)); }
     }
     const qm = g.quests.npcMark();
-    if (qm === '!' || qm === '?') { c.font = `bold ${14 * D}px sans-serif`; c.fillStyle = '#ffd23a'; c.fillText(qm, tx(GIVER.pos[0]), tz(GIVER.pos[1]) - 8 * D); }
+    for (const o of OUTPOSTS) if (o.id !== 'camp') { c.font = `${12 * D}px sans-serif`; c.fillText('⛺', tx(o.x), tz(o.z)); }
+    if (qm === '!' || qm === '?') { c.font = `bold ${14 * D}px sans-serif`; c.fillStyle = '#ffd23a'; for (const gv of GIVERS) c.fillText(qm, tx(gv.pos[0]), tz(gv.pos[1]) - 8 * D); }
     if (nearest && nd * scale > W / 2 - 12) {
       const a = Math.atan2(nearest.z - p.pos.z, nearest.x - p.pos.x), r = W / 2 - 10 * D;
       c.save(); c.translate(W / 2 + Math.cos(a) * r, H / 2 + Math.sin(a) * r); c.rotate(a);
@@ -387,6 +391,8 @@ export class UI {
 
   openNpc(n) {
     if (dist2d(n.pos, this.g.player.pos) > 6) { this.g.player.moveTarget = n.pos.clone().add(new THREE.Vector3(0, 0, 2.5)); return; }
+    const title = { smith: '⚒️ ', merchant: '💰 ', quest: '📜 ' }[n.role] + n.name;
+    $({ smith: '#smith', merchant: '#shop', quest: '#quest' }[n.role] + ' .ph h3').textContent = title;
     if (n.role === 'smith') this.openSmith(); else if (n.role === 'quest') this.openQuests(); else this.openShop();
   }
   interact() {
@@ -402,11 +408,11 @@ export class UI {
     const el = $('#qtrack');
     if (!list.length) {
       const m = qs.npcMark();
-      el.innerHTML = m === '!' ? `<div class="qt"><b>📜 Yeni görev</b><span>${GIVER.name} ile konuş</span></div>` : '';
+      el.innerHTML = m === '!' ? `<div class="qt"><b>📜 Yeni görev</b><span>Bir Gözcü ile konuş</span></div>` : '';
       return;
     }
     el.innerHTML = list.map(({ q, prog, done, kind }) => `<div class="qt ${done ? 'done' : ''}"><b>${kind === 'bounty' ? '🎯' : '📜'} ${q.name}</b>
-      <span>${done ? `✔ ${GIVER.name}'a dön` : `${objectiveText(q)}: ${prog}/${q.count}`}</span></div>`).join('');
+      <span>${done ? '✔ Teslim için bir Gözcü\'ye git' : `${objectiveText(q)}: ${prog}/${q.count}`}</span></div>`).join('');
   }
 
   channel(label, k) {
@@ -581,7 +587,12 @@ export class UI {
       c.font = `bold ${11 * D}px sans-serif`; c.fillStyle = '#000'; c.fillText(r.name, X(r.pos.x) + D, Z(r.pos.z) - 11 * D + D); c.fillStyle = '#9dffb0'; c.fillText(r.name, X(r.pos.x), Z(r.pos.z) - 11 * D);
     }
     const qm = g.quests.npcMark();
-    if (qm === '!' || qm === '?') { c.font = `900 ${20 * D}px sans-serif`; c.fillStyle = '#ffd23a'; c.fillText(qm, X(GIVER.pos[0]) + 9 * D, Z(GIVER.pos[1]) - 10 * D); }
+    for (const o of OUTPOSTS) {
+      if (o.id !== 'camp') { c.font = `${18 * D}px sans-serif`; c.fillText('⛺', X(o.x), Z(o.z)); }
+      c.font = `bold ${10 * D}px sans-serif`; c.fillStyle = '#000'; c.fillText(o.name, X(o.x) + D, Z(o.z) + 16 * D + D); c.fillStyle = '#bfe3ff'; c.fillText(o.name, X(o.x), Z(o.z) + 16 * D);
+      c.strokeStyle = 'rgba(159,224,255,.5)'; c.lineWidth = 1.5 * D; c.setLineDash([2 * D, 3 * D]); c.beginPath(); c.arc(X(o.x), Z(o.z), o.r * k, 0, 6.28); c.stroke(); c.setLineDash([]);
+    }
+    if (qm === '!' || qm === '?') { c.font = `900 ${20 * D}px sans-serif`; c.fillStyle = '#ffd23a'; for (const gv of GIVERS) c.fillText(qm, X(gv.pos[0]) + 9 * D, Z(gv.pos[1]) - 10 * D); }
     c.save(); c.translate(X(p.pos.x), Z(p.pos.z)); c.rotate(-p.yaw + Math.PI);
     const s = 8 * D; c.fillStyle = '#fff'; c.strokeStyle = '#000'; c.lineWidth = 2 * D;
     c.beginPath(); c.moveTo(0, -s * 1.3); c.lineTo(s, s); c.lineTo(0, s * 0.4); c.lineTo(-s, s); c.closePath(); c.fill(); c.stroke(); c.restore();

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { makeCharacter, Animator } from './assets.js';
 import { CLASSES, ENEMIES, itemStat } from './data.js';
 import { heightAt } from './world.js';
+import { safeAt } from '../server/shared/terrain.js';
 import { sfx } from './audio.js';
 
 const TMP = new THREE.Vector3();
@@ -84,8 +85,13 @@ export class Player extends Unit {
     for (const k in this.cds) this.cds[k] -= dt;
     if (this.dead) { this.anim.update(dt); this.syncModel(dt); return; }
     // regen
-    const inCamp = this.pos.distanceTo(g.campPos) < 18;
-    const regen = inCamp ? 0.06 : this.lastDamageT > 6 ? 0.02 : 0.004;
+    const safe = safeAt(this.pos.x, this.pos.z);
+    if (safe !== this.safe) {
+      if (safe) { g.ui.toast(`🛡️ ${safe.name} · güvenli bölge`, '#9fe0ff'); this.autoAttack = false; }
+      else if (this.safe) g.ui.toast('⚔️ Güvenli bölgeden çıktın', '#ffb38a');
+      this.safe = safe;
+    }
+    const regen = safe ? 0.06 : this.lastDamageT > 6 ? 0.02 : 0.004;
     this.hp = Math.min(this.maxHp, this.hp + this.maxHp * regen * dt);
     this.mp = Math.min(this.maxMp, this.mp + this.maxMp * (regen + 0.006) * dt);
     if (this.target && !this.target.alive) { this.target = null; this.autoAttack = false; }
@@ -122,11 +128,11 @@ export class Player extends Unit {
           if (n) { t = this.target = n; }
           else if (dist2d(this.pos, t.pos) > reach + t.radius + 4) { this.autoAttack = false; t = null; } // walked away: stop
         }
-        if (t && this.autoAttack && !this.cast && this.atkCd <= 0 && dist2d(this.pos, t.pos) <= reach + t.radius) this.basicAttack();
+        if (t && this.autoAttack && !this.safe && !this.cast && this.atkCd <= 0 && dist2d(this.pos, t.pos) <= reach + t.radius) this.basicAttack();
       }
       if (!this.cast?.face) this.yaw = lerpAngle(this.yaw, Math.atan2(mv.x, mv.z), Math.min(1, dt * 14));
     } else if (this.cast) { /* finishing an attack while standing */ }
-    else if (this.autoAttack && this.target) {
+    else if (this.autoAttack && this.target && !this.safe) {
       const d = dist2d(this.pos, this.target.pos);
       const range = this.cls.range + this.target.radius;
       if (d > range) {
@@ -194,6 +200,7 @@ export class Player extends Unit {
     const g = this.game, s = this.cls.skills[i];
     if (this.level < s.unlock) { g.ui.toast(`${s.name} ${s.unlock}. seviyede açılır`, '#ff8a6a'); sfx.deny(); return; }
     if (this.cds[s.id] > 0 || this.cast || this.dead) { sfx.deny(); return; }
+    if (this.safe && s.id !== 'warcry') { g.ui.toast('Güvenli bölgede savaşamazsın', '#9fe0ff'); sfx.deny(); return; }
     if (this.mp < s.mp) { g.ui.toast('Yetersiz mana', '#6ab8ff'); sfx.deny(); return; }
     // auto-acquire target for targeted skills
     const needsTarget = ['charge', 'fireball', 'meteor'].includes(s.id);
@@ -369,9 +376,10 @@ export class Enemy extends Unit {
     if (this.stunT > 0) { this.anim.loop('Idle', 0.1, 0.3); if (Math.random() < 0.3) g.fx.trail(TMP.copy(this.pos).setY(this.pos.y + 2.4 * this.scale), 0xffe066, 0.25, 0.4); this.syncModel(dt); return; }
 
     // Target: whoever we're already fighting, otherwise the nearest living player.
-    if (this.tgt && (this.tgt.dead || this.tgt.gone)) this.tgt = null;
-    const p = this.tgt || g.nearestPlayer(this.pos) || g.player;
-    const dp = p.dead ? 999 : dist2d(this.pos, p.pos);
+    // Players inside a camp/outpost are off-limits.
+    if (this.tgt && (this.tgt.dead || this.tgt.gone || safeAt(this.tgt.pos.x, this.tgt.pos.z))) this.tgt = null;
+    const p = this.tgt || g.nearestPlayer(this.pos);
+    const dp = !p || p.dead ? 999 : dist2d(this.pos, p.pos);
     const dh = dist2d(this.pos, this.home);
     const slow = this.slowT > 0 ? 0.4 : 1;
     const spd = this.speed * slow * (this.enraged ? 1.3 : 1);
@@ -379,7 +387,7 @@ export class Enemy extends Unit {
     if (this.state === 'cast') {
       this.castT += dt;
       while (this.castEv.length && this.castT >= this.castEv[0].at) this.castEv.shift().fn();
-      if (this.castFace && !p.dead) this.faceTo(p.pos, dt, 4);
+      if (this.castFace && p && !p.dead) this.faceTo(p.pos, dt, 4);
       if (this.castT >= this.castDur) this.state = 'chase';
       if (this.leapTo) {
         const k = THREE.MathUtils.clamp((this.castT - 0.35) / 0.75, 0, 1);
@@ -389,7 +397,7 @@ export class Enemy extends Unit {
         if (this.flash > 0) this.syncModel(dt);
         return;
       }
-      if (this.spinning) {
+      if (this.spinning && p) {
         TMP.subVectors(p.pos, this.pos).setY(0); if (TMP.length() > 1) { TMP.normalize(); this.pos.addScaledVector(TMP, spd * 0.9 * dt); g.world.resolve(this.pos, this.radius); }
       }
       this.syncModel(dt); return;
@@ -410,7 +418,7 @@ export class Enemy extends Unit {
         } else this.anim.loop('Idle', 0.3);
       }
     } else if (this.state === 'chase') {
-      if (p.dead || dh > (this.isBoss ? 30 : 24)) { this.state = 'return'; this.tgt = null; }
+      if (!p || p.dead || dh > (this.isBoss ? 30 : 24)) { this.state = 'return'; this.tgt = null; }
       else {
         if (this.isBoss) this.bossThink(dt, dp);
         if (this.state !== 'chase') { this.syncModel(dt); return; }
@@ -451,7 +459,8 @@ export class Enemy extends Unit {
   }
 
   attack() {
-    const g = this.game, p = this.tgt || g.player;
+    const g = this.game, p = this.tgt || g.nearestPlayer(this.pos);
+    if (!p) return;
     this.atkCd = this.T.atkTime * (this.enraged ? 0.75 : 1) * (0.9 + Math.random() * 0.2);
     if (this.T.ranged) {
       const dur = this.anim.once('Spellcast_Shoot', { timeScale: 1.1, lockFor: 0.8 });
@@ -481,7 +490,8 @@ export class Enemy extends Unit {
   }
 
   bossThink(dt, dp) {
-    const g = this.game, p = this.tgt || g.player;
+    const g = this.game, p = this.tgt || g.nearestPlayer(this.pos);
+    if (!p) return;
     this.abilityT -= dt;
     if (!this.enraged && this.hp < this.maxHp * 0.35) {
       this.enraged = true;
