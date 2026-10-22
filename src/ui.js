@@ -44,6 +44,7 @@ export class UI {
     $('#minimap').onclick = () => this.openMap();
     $('#qtrack').onclick = () => this.openMap();
     this.refreshQuests();
+    this.roomBadge();
     if (!game.save.quests.done.length && !game.save.quests.active) setTimeout(() => this.toast(`📜 ${GIVER.name} kampta seni bekliyor (!)`, '#ffe08a'), 2500);
     document.querySelectorAll('.modal .close').forEach((b) => (b.onclick = () => this.closeModal()));
     this.refreshInventory();
@@ -55,6 +56,24 @@ export class UI {
     el.style.display = 'none'; this.overlay.appendChild(el); this.plates.set(e, { el, bar: el.querySelector('i'), shown: false });
   }
   removePlate(e) { const p = this.plates.get(e); if (p) { p.el.remove(); this.plates.delete(e); } }
+  addPlayerPlate(r) {
+    const el = h('div', 'plate ally', `<div class="nm"><span class="lv"></span> <b></b></div><div class="hpb"><i></i></div>`);
+    el.style.display = 'none'; this.overlay.appendChild(el);
+    (this.allyPlates ||= new Map()).set(r, { el, lv: el.querySelector('.lv'), nm: el.querySelector('b'), bar: el.querySelector('i') });
+  }
+  removePlayerPlate(r) { const p = this.allyPlates?.get(r); if (p) { p.el.remove(); this.allyPlates.delete(r); } }
+  roomBadge() {
+    const c = this.g?.coop || null, el = $('#room');
+    if (!el) return;
+    if (!c) { el.classList.add('hidden'); return; }
+    el.classList.remove('hidden');
+    el.innerHTML = `👥 Oda <b>${c.code}</b> · ${c.count}/4${c.isHost ? ' · kurucu' : ''}`;
+  }
+  netLost(reason) {
+    $('#netlost p').textContent = reason;
+    $('#netlost').classList.remove('hidden');
+    $('#netlost button').onclick = () => { saveGame(this.g.save, this.g.player); location.reload(); };
+  }
   addNpcPlate(n) {
     const icon = { smith: '⚒️', merchant: '💰', quest: '📜' }[n.role], role = { smith: 'Güçlendirme', merchant: 'Market', quest: 'Görevler' }[n.role];
     const el = h('div', 'plate npc', `<div class="mark"></div><div class="nm">${icon} ${n.name}</div><div class="role">${role}</div>`);
@@ -93,6 +112,16 @@ export class UI {
       const diff = e.level - p.level;
       const dc = diff >= 3 ? 'red' : diff <= -4 ? 'grey' : diff >= 1 ? 'orange' : 'white';
       if (pl.dc !== dc) { pl.el.dataset.diff = dc; pl.dc = dc; }
+    }
+    if (this.allyPlates) for (const [r, pl] of this.allyPlates) {
+      const sc = !r.fresh && dist2d(r.pos, p.pos) < 40 && this.project(r.pos, 2.6);
+      if (!sc) { if (pl.shown) { pl.el.style.display = 'none'; pl.shown = false; } continue; }
+      if (!pl.shown) { pl.el.style.display = ''; pl.shown = true; }
+      pl.el.style.transform = `translate(${sc[0] | 0}px, ${sc[1] | 0}px) translate(-50%, -100%)`;
+      const key = r.level + r.name + r.dead;
+      if (pl.key !== key) { pl.key = key; pl.lv.textContent = 'Sv.' + r.level; pl.nm.textContent = r.dead ? `${r.name} (öldü)` : r.name; }
+      const w = Math.round(Math.max(0, r.hp / r.maxHp) * 100);
+      if (pl.w !== w) { pl.bar.style.width = w + '%'; pl.w = w; }
     }
     let near = null;
     const qm = g.quests.npcMark();
@@ -193,6 +222,13 @@ export class UI {
       c.beginPath(); c.arc(tx(e.pos.x), tz(e.pos.z), 2.2 * devicePixelRatio, 0, 6.28); c.fill();
     }
     for (const n of g.npcs) { c.fillStyle = '#6ad1ff'; c.beginPath(); c.arc(tx(n.pos.x), tz(n.pos.z), 2.5 * devicePixelRatio, 0, 6.28); c.fill(); }
+    if (g.coop) for (const r of g.coop.remotes.values()) {
+      if (r.fresh || r.gone) continue;
+      const dx = r.pos.x - p.pos.x, dz = r.pos.z - p.pos.z, d = Math.hypot(dx, dz) * scale, R = W / 2 - 8 * devicePixelRatio;
+      const k = d > R ? R / d : 1;
+      c.fillStyle = r.dead ? '#888' : '#5dff7a'; c.strokeStyle = '#000'; c.lineWidth = devicePixelRatio;
+      c.beginPath(); c.arc(W / 2 + dx * scale * k, H / 2 + dz * scale * k, 3.5 * devicePixelRatio, 0, 6.28); c.fill(); c.stroke();
+    }
     // quest objectives
     const D = devicePixelRatio;
     const tg = g.quests.targets();
@@ -496,6 +532,12 @@ export class UI {
       c.fillStyle = alive ? '#ff6a4a' : '#eee'; c.fillText(alive ? 'BURADA!' : fmtTime(u.timer), X(d.pos[0]), Z(d.pos[1]) + 17 * D);
     }
     for (const n of g.npcs) { c.fillStyle = '#6ad1ff'; c.beginPath(); c.arc(X(n.pos.x), Z(n.pos.z), 3.5 * D, 0, 6.28); c.fill(); }
+    if (g.coop) for (const r of g.coop.remotes.values()) {
+      if (r.fresh || r.gone) continue;
+      c.fillStyle = r.dead ? '#888' : '#5dff7a'; c.strokeStyle = '#000'; c.lineWidth = 1.5 * D;
+      c.beginPath(); c.arc(X(r.pos.x), Z(r.pos.z), 5 * D, 0, 6.28); c.fill(); c.stroke();
+      c.font = `bold ${11 * D}px sans-serif`; c.fillStyle = '#000'; c.fillText(r.name, X(r.pos.x) + D, Z(r.pos.z) - 11 * D + D); c.fillStyle = '#9dffb0'; c.fillText(r.name, X(r.pos.x), Z(r.pos.z) - 11 * D);
+    }
     const qm = g.quests.npcMark();
     if (qm === '!' || qm === '?') { c.font = `900 ${20 * D}px sans-serif`; c.fillStyle = '#ffd23a'; c.fillText(qm, X(GIVER.pos[0]) + 9 * D, Z(GIVER.pos[1]) - 10 * D); }
     c.save(); c.translate(X(p.pos.x), Z(p.pos.z)); c.rotate(-p.yaw + Math.PI);
@@ -512,7 +554,7 @@ export class UI {
     const rows = g.uniques.map((u) => `<div class="lg"><span>💀 ${u.def.name}</span><b>${u.enemy && u.enemy.alive ? '<em>Sahada!</em>' : fmtTime(u.timer)}</b></div>`).join('');
     const qs = g.quests.list().map(({ q, prog, done }) => `<div class="lg"><span>${done ? '✔' : '📜'} ${q.name}</span><b>${done ? 'Teslim et' : prog + '/' + q.count}</b></div>`).join('');
     $('#maplegend').innerHTML = `<h4>Unique Boss'lar</h4>${rows}<h4>Görevler</h4>${qs || '<div class="lg dim">Aktif görev yok</div>'}
-      <div class="keys"><span>⛺ Kamp</span><span>🏛️ Tapınak</span><span><i class="dot org"></i> Mob kampı (seviye)</span><span><i class="dot red"></i> Zor</span><span><i class="dot blue"></i> NPC</span><span>✦ Toplanacak</span><span><i class="ring"></i> Görev bölgesi</span></div>`;
+      <div class="keys"><span>⛺ Kamp</span><span>🏛️ Tapınak</span><span><i class="dot org"></i> Mob kampı (seviye)</span><span><i class="dot red"></i> Zor</span><span><i class="dot blue"></i> NPC</span><span><i class="dot green"></i> Arkadaş</span><span>✦ Toplanacak</span><span><i class="ring"></i> Görev bölgesi</span></div>`;
     clearTimeout(this.legendT);
     if (!$('#map').classList.contains('hidden')) this.legendT = setTimeout(() => this.mapLegend(), 1000);
   }

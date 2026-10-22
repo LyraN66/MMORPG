@@ -29,6 +29,7 @@
     <div class="logo big">Kemik Vadisi<small>Lanetli topraklarda bir efsane</small></div>
     <div class="tbtns">
       <button class="btn big" id="t-continue">Devam Et</button>
+      <button class="btn big ghost" id="t-coop">👥 Arkadaşla Oyna</button>
       <button class="btn big ghost" id="t-new">Oyuna Başla</button>
     </div>
     <div class="credit">Grafikler: KayKit (CC0) · Prototip v0.1</div>
@@ -69,6 +70,7 @@
     <div id="zonebanner"></div>
     <div id="levelup"></div>
     <div id="fps"></div>
+    <div id="room" class="hidden"></div>
   </div>
 
   <!-- Controls -->
@@ -110,6 +112,23 @@
     <p class="npcsay">"Örsüme getir, bakalım şansın ne kadar yaver gidecek."</p>
     <div class="smithgrid"><div id="smithlist"></div><div id="smithpanel"></div></div>
   </div></div>
+
+  <!-- Co-op lobby -->
+  <div id="lobby" class="modal hidden"><div class="panel small">
+    <div class="ph"><h3>👥 Arkadaşla Oyna</h3><button class="close" id="lobby-x">✕</button></div>
+    <p class="lhint">Biri oda kurar, 4 haneli kodu arkadaşına söyler; arkadaşın kodu yazıp katılır. Herkes kendi karakteriyle girer, moblar ve ganimet ortaktır (yere düşeni ilk alan kapar).</p>
+    <div class="lrow"><button class="btn" id="l-create">Oda Kur</button></div>
+    <div class="lrow"><input id="l-code" inputmode="numeric" maxlength="4" placeholder="Kod" autocomplete="off" /><button class="btn ghost" id="l-join">Katıl</button></div>
+    <div class="lstatus" id="l-status"></div>
+    <details><summary>Sunucu ayarı</summary><input id="l-server" autocomplete="off" spellcheck="false" /></details>
+  </div></div>
+
+  <!-- Connection lost -->
+  <div id="netlost" class="hidden screen dim">
+    <h2>Bağlantı kesildi</h2>
+    <p></p>
+    <button class="btn big">Ana Menüye Dön</button>
+  </div>
 
   <!-- Quests -->
   <div id="quest" class="modal hidden"><div class="panel small">

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { heightAt, CAMP_POS, rng } from './world.js';
 import { Player, Enemy, dist2d } from './units.js';
-import { CAMPS, UNIQUES, xpToNext, MAX_LEVEL, makeItem, RARITY, zoneAt } from './data.js';
+import { CAMPS, UNIQUES, ENEMIES, xpToNext, MAX_LEVEL, makeItem, RARITY, zoneAt } from './data.js';
+import { Coop } from './coop.js';
 import { cloneProp, cloneWeapon, makeCharacter, Animator } from './assets.js';
 import { Quests, GIVER } from './quests.js';
 import { sfx } from './audio.js';
@@ -13,8 +14,10 @@ let EID = 0;
 const FOGC = new THREE.Color();
 
 export class Game {
-  constructor({ renderer, scene, camera, ui, input, save, quality, world, fx }) {
+  constructor({ renderer, scene, camera, ui, input, save, quality, world, fx, net }) {
     Object.assign(this, { renderer, scene, camera, ui, input, save, quality });
+    this.isGuest = !!net && !net.isHost;
+    this.enemyById = new Map();
     this.time = 0; this.timers = [];
     this.fx = fx;
     this.world = world; world.cam = camera;
@@ -26,7 +29,9 @@ export class Game {
     this.camYawOffset = 0; this.camDist = 1; this.camPos = new THREE.Vector3();
     this.zone = null; this.saveT = 0;
     this.raycaster = new THREE.Raycaster();
-    this.setupCamps();
+    this.coop = net ? new Coop(this, net) : null;
+    // Guests don't simulate the world: enemies arrive from the host.
+    if (!this.isGuest) this.setupCamps(); else this.camps = [];
     this.setupUniques();
     this.setupNpcs();
     this.quests = new Quests(this);
@@ -66,9 +71,10 @@ export class Game {
     e.camp = c; c.alive.push(e);
     return e;
   }
-  spawnEnemy(type, lv, at, unique) {
-    const e = new Enemy(this, type, lv, at, unique);
-    e.id = EID++; e.awake = true;
+  spawnEnemy(type, lv, at, unique, opts = {}) {
+    const e = new Enemy(this, type, lv, at, unique, opts);
+    e.id = opts.id ?? EID++; e.awake = true;
+    this.enemyById.set(e.id, e);
     this.enemies.push(e); this.ui.addPlate(e);
     return e;
   }
@@ -79,9 +85,9 @@ export class Game {
     const d = u.def;
     const at = new THREE.Vector3(d.pos[0], 0, d.pos[1]);
     u.enemy = this.spawnEnemy(d.type, d.level, at, d);
-    this.ui.announce(`⚔ ${d.name} (Sv.${d.level}) ${d.zone}'nda belirdi!`, 'unique');
+    this.announceAll(`⚔ ${d.name} (Sv.${d.level}) ${d.zone}'nda belirdi!`, 'unique');
     sfx.roar();
-    this.fx.pillar(at.clone().setY(heightAt(at.x, at.z)), d.tint, { h: 30, r: 2.5, dur: 2.5 });
+    this.efx('pillar', { x: at.x, z: at.z, c: d.tint });
   }
   setupNpcs() {
     this.npcs = [];
@@ -108,6 +114,43 @@ export class Game {
 
   // ---------- helpers ----------
   later(t, fn) { this.timers.push({ t, fn }); }
+  players() { return this.coop ? [this.player, ...[...this.coop.remotes.values()].filter((r) => !r.gone && !r.fresh)] : [this.player]; }
+  nearestPlayer(pos) {
+    let best = null, bd = Infinity;
+    for (const q of this.players()) { if (q.dead) continue; const d = dist2d(q.pos, pos); if (d < bd) { bd = d; best = q; } }
+    return best;
+  }
+  announceAll(text, kind) { this.ui.announce(text, kind); if (this.coop?.isHost) this.coop.send({ t: 'ann', x: text, k: kind }); }
+
+  // World effects caused by enemies: played here and, on the host, mirrored to guests.
+  efx(kind, a, netOnly) {
+    if (!netOnly) this.playEfx(kind, a);
+    if (this.coop?.isHost) this.coop.send({ t: 'efx', k: kind, a });
+  }
+  playEfx(kind, a) {
+    const fx = this.fx;
+    if (kind === 'ebolt') {
+      const e = this.enemyById.get(a.e), to = this.coop?.remoteOrMe(a.to);
+      if (e && to) { const from = e.pos.clone(); from.y += 1.6 * e.scale; this.projectile({ from, target: to, speed: 11, color: 0xa66bff, size: 0.55, owner: e, mult: 0, kind: 'enemyBolt', visual: true }); }
+      return;
+    }
+    const at = new THREE.Vector3(a.x, heightAt(a.x, a.z), a.z);
+    const d = dist2d(at, this.player.pos), near = d < 18, audible = d < 40;
+    switch (kind) {
+      case 'roar': if (audible) sfx.roar(); if (near) fx.shake(0.6); fx.groundRing(at, { color: a.c, r0: 1, r1: a.r, dur: 1 }); break;
+      case 'enrage': this.ui.announce(`${a.name} öfkelendi!`, 'boss'); if (audible) sfx.roar(); if (near) { fx.shake(0.7); fx.flash('rgba(255,30,30,0.25)'); } fx.groundRing(at, { color: 0xff2222, r0: 1, r1: 14, dur: 0.9 }); break;
+      case 'tele': fx.telegraph(at, a.r, a.dur); if (audible) sfx.warn(); break;
+      case 'slam':
+        if (audible) sfx.boom(true); if (near) { fx.shake(0.9); fx.stop(0.08); }
+        fx.groundRing(at, { color: 0xff6a3a, r0: 0.5, r1: a.r, dur: 0.5 }); fx.dust(at, 20, 0x6a5a48, 2);
+        fx.burst(at.clone().setY(at.y + 0.3), 40, 0xff8a3a, { speed: 9, up: 4, size: 0.6 }); break;
+      case 'spin': if (audible) sfx.spin(); fx.groundRing(at, { color: a.c, r0: 1, r1: a.r, dur: 0.3, opacity: 0.8 }); break;
+      case 'summon': if (audible) sfx.roar(); fx.groundRing(at, { color: 0x8a5aff, r0: 1, r1: 8, dur: 0.8 }); break;
+      case 'bigswing': if (near) fx.shake(0.3); fx.groundRing(at, { color: 0xffffff, r0: 0.5, r1: 2.5, dur: 0.3 }); break;
+      case 'pillar': fx.pillar(at, a.c, { h: 30, r: 2.5, dur: 2.5 }); break;
+      default: break;
+    }
+  }
   enemiesNear(p, r) { return this.enemies.filter((e) => e.alive && e.state !== 'spawn' && dist2d(e.pos, p) < r + e.radius); }
   nearestEnemy(p, r) {
     let best = null, bd = r;
@@ -118,13 +161,18 @@ export class Game {
   damage(from, to, mult, opts = {}) {
     const isPlayer = from === this.player;
     const atk = isPlayer ? from.effAtk : from.atk;
-    const def = to === this.player ? to.effDef : to.def;
+    const def = to.isEnemy ? to.def : to === this.player ? to.effDef : (to.def || 5);
     let dmg = atk * mult * (60 / (60 + def * 3)) * (0.9 + Math.random() * 0.2);
     let crit = false;
     if (isPlayer && Math.random() < 0.12) { crit = true; dmg *= 1.8; }
     dmg = Math.max(1, Math.round(dmg));
-    to.takeHit(dmg, from, opts);
-    if (to !== this.player) {
+    if (to.isEnemy && to.remote) {
+      // Guest hitting a host-simulated enemy: report it, predict the hit locally.
+      this.coop.send({ t: 'dmg', to: this.coop.hostId, id: to.id, d: dmg, k: opts.knock || 0, st: opts.stun || 0, sl: opts.slow || 0 });
+      to.hitFlash(); to.hp = Math.max(1, to.hp - dmg); to.predT = this.time;
+      if (opts.slow) to.slowT = opts.slow;
+    } else to.takeHit(dmg, from, opts);
+    if (to.isEnemy) {
       this.fx.number(to.pos, crit ? dmg + '!' : String(dmg), crit ? 'crit big' : opts.color === 'frost' ? 'frost' : '');
       sfx.hit(crit);
       const hp = to.pos.clone(); hp.y += 1.2 * to.scale;
@@ -155,13 +203,15 @@ export class Game {
       for (let i = 0; i < 3; i++) this.fx.trail(m.position, i ? 0xff9a3a : 0xffe08a, 1.2, 0.5);
       if (k >= 1) {
         this.scene.remove(m); m.material.dispose();
-        sfx.boom(true); this.fx.shake(1); this.fx.stop(0.1); this.fx.flash('rgba(255,150,60,0.25)');
+        const nearMe = dist2d(at, this.player.pos) < 20;
+        if (dist2d(at, this.player.pos) < 40) sfx.boom(true);
+        if (nearMe) { this.fx.shake(owner ? 1 : 0.4); if (owner) { this.fx.stop(0.1); this.fx.flash('rgba(255,150,60,0.25)'); } }
         this.fx.groundRing(at, { color: 0xff7a2a, r0: 0.5, r1: 6, dur: 0.6 });
         this.fx.groundRing(at, { color: 0xffe08a, r0: 0.5, r1: 4.5, dur: 0.4 });
         this.fx.burst(at.clone().setY(at.y + 0.4), 120, 0xff7a2a, { speed: 14, up: 6, size: 0.9, life: 0.9, grav: 4 });
         this.fx.burst(at.clone().setY(at.y + 0.4), 50, 0x553322, { solid: true, speed: 9, up: 9, size: 0.35, life: 1.2, grav: 18 });
         this.fx.dust(at, 24, 0x5a4a3a, 2.5);
-        for (const e of this.enemiesNear(at, 4.5)) this.damage(owner, e, 4.2, { knock: 1.4 });
+        if (owner) for (const e of this.enemiesNear(at, 4.5)) this.damage(owner, e, 4.2, { knock: 1.4 });
         return true;
       }
     };
@@ -172,45 +222,64 @@ export class Game {
   onEnemyKilled(e, killer) {
     const p = this.player;
     if (e.camp) { e.camp.alive = e.camp.alive.filter((x) => x !== e); e.camp.respawnQ.push(14 + Math.random() * 8); }
-    if (killer !== p) return;
-    this.quests.onKill(e);
-    const diff = THREE.MathUtils.clamp(1 + (e.level - p.level) * 0.15, 0.15, 1.6);
-    let xp = Math.round(14 * Math.pow(e.level, 1.25) * e.T.xp * diff * (e.unique ? e.unique.xpMul : 1) * (e.summoned ? 0.3 : 1));
-    this.gainXp(xp, e.pos);
+    if (!killer || !killer.isPlayer) return;
+    const info = { id: e.id, type: e.type, lv: e.level, u: e.unique ? e.unique.id : '', s: e.summoned ? 1 : 0, x: e.pos.x, z: e.pos.z };
+    if (this.coop?.isHost) this.coop.send({ t: 'ekill', ...info });
+    this.rewardKill(info);
     if (e.noLoot) return;
     // Loot
     const drop = (kind, data) => this.dropLoot(e.pos, kind, data);
     if (e.unique) {
       const u = UNIQUES[e.unique.id];
-      this.ui.announce(`🏆 ${u.name} yenildi!`, 'victory');
+      this.announceAll(`🏆 ${u.name} yenildi!`, 'victory');
       sfx.rare();
       drop('gold', Math.round(u.gold * (0.8 + Math.random() * 0.4)));
       const items = u.id === 'morvath' ? [3, 2, 2] : [2, Math.random() < 0.5 ? 2 : 1];
-      for (const r of items) drop('item', makeItem(['weapon', 'armor', 'ring'][Math.floor(Math.random() * 3)], e.level, r, p.save.cls));
+      for (const r of items) drop('item', makeItem(['weapon', 'armor', 'ring'][Math.floor(Math.random() * 3)], e.level, r, this.lootClass()));
       drop('potion', 'hp'); drop('potion', 'mp'); drop('potion', 'hp');
       const st = this.uniques.find((x) => x.def.id === u.id); st.enemy = null; st.timer = u.respawn;
-      this.save.stats.uniques = (this.save.stats.uniques || 0) + 1;
       return;
     }
-    this.save.stats.kills = (this.save.stats.kills || 0) + 1;
     drop('gold', Math.round(e.level * 3 * (0.6 + Math.random() * 0.8) + 2));
     if (Math.random() < 0.16) {
       const r = Math.random(); const rar = r < 0.04 ? 2 : r < 0.26 ? 1 : 0;
-      drop('item', makeItem(['weapon', 'armor', 'ring'][Math.floor(Math.random() * 3)], e.level, rar, p.save.cls));
+      drop('item', makeItem(['weapon', 'armor', 'ring'][Math.floor(Math.random() * 3)], e.level, rar, this.lootClass()));
     }
     if (Math.random() < 0.14) drop('potion', Math.random() < 0.55 ? 'hp' : 'mp');
   }
 
-  dropLoot(at, kind, data) {
-    const pos = at.clone().add(new THREE.Vector3((Math.random() - 0.5) * 2.2, 0, (Math.random() - 0.5) * 2.2));
+  // XP and quest credit for a kill: everyone in the party who is close enough gets it.
+  rewardKill(info) {
+    const p = this.player; if (p.dead) return;
+    if (Math.hypot(p.pos.x - info.x, p.pos.z - info.z) > 32) return;
+    const T = ENEMIES[info.type], uq = info.u ? UNIQUES[info.u] : null;
+    const at = new THREE.Vector3(info.x, heightAt(info.x, info.z), info.z);
+    const diff = THREE.MathUtils.clamp(1 + (info.lv - p.level) * 0.15, 0.15, 1.6);
+    const xp = Math.round(14 * Math.pow(info.lv, 1.25) * T.xp * diff * (uq ? uq.xpMul : 1) * (info.s ? 0.3 : 1));
+    this.gainXp(xp, at);
+    if (uq) this.save.stats.uniques = (this.save.stats.uniques || 0) + 1;
+    else this.save.stats.kills = (this.save.stats.kills || 0) + 1;
+    this.quests.onKill({ type: info.type, level: info.lv, unique: uq, pos: at });
+  }
+  // Shared loot can be anyone's class.
+  lootClass() {
+    const cls = [this.save.cls, ...(this.coop ? [...this.coop.remotes.values()].map((r) => r.cls.id) : [])];
+    return cls[Math.floor(Math.random() * cls.length)];
+  }
+
+  dropLoot(at, kind, data, net = {}) {
+    const pos = net.exact ? at.clone() : at.clone().add(new THREE.Vector3((Math.random() - 0.5) * 2.2, 0, (Math.random() - 0.5) * 2.2));
     pos.y = heightAt(pos.x, pos.z);
+    const shared = !!this.coop && kind !== 'quest';
+    const lid = net.lid ?? (this.coop ? this.coop.nextLid() : 0);
+    if (shared && this.coop.isHost && net.lid == null) this.coop.send({ t: 'loot', lid, kind, data, x: pos.x, z: pos.z });
     let mesh, beam = null, color = 0xffd36b;
     if (kind === 'gold') { mesh = cloneProp('coin_stack_large', 0.32); }
     else if (kind === 'item') {
       color = new THREE.Color(RARITY[data.rarity].color).getHex();
       mesh = cloneProp(data.rarity >= 2 ? 'chest_gold' : 'chest', 0.42);
       beam = this.fx.lootBeam(pos, color);
-      if (data.rarity >= 1) sfx.rare();
+      if (data.rarity >= 1 && !net.quiet && dist2d(pos, this.player.pos) < 40) sfx.rare();
     } else if (kind === 'quest') {
       color = 0x7dff9a;
       mesh = data.icon === 'staff' ? cloneWeapon('sk_staff', 0.55) : cloneProp('bone_A', 1.1);
@@ -221,7 +290,7 @@ export class Game {
     }
     const glow = this.fx.glow(color, 1.6); glow.position.y = 0.4; mesh.add(glow);
     mesh.position.copy(pos); this.scene.add(mesh);
-    const l = { kind, data, pos, mesh, beam, t: 0, vy: 5, y: 1, color };
+    const l = { kind, data, pos, mesh, beam, t: 0, vy: 5, y: 1, color, lid, shared };
     this.loot.push(l);
     this.ui.addLootPlate?.(l);
   }
@@ -273,7 +342,7 @@ export class Game {
   revive() {
     this.ui.death(false);
     this.player.revive(this.campPos.clone().add(new THREE.Vector3(0, 0, -4)));
-    for (const e of this.enemies) if (e.state === 'chase' || e.state === 'cast') e.state = 'return';
+    for (const e of this.enemies) if (!e.remote && (e.state === 'chase' || e.state === 'cast') && (!e.tgt || e.tgt === this.player)) { e.state = 'return'; e.tgt = null; }
   }
 
   // ---------- input ----------
@@ -330,14 +399,19 @@ export class Game {
     p.update(dt, { move: move.clone() });
 
     this.updateEnemies(dt);
-    for (let i = this.enemies.length - 1; i >= 0; i--) if (this.enemies[i].remove) { this.ui.removePlate(this.enemies[i]); this.enemies[i].dispose(); this.enemies.splice(i, 1); }
+    for (let i = this.enemies.length - 1; i >= 0; i--) if (this.enemies[i].remove) {
+      const e = this.enemies[i];
+      this.ui.removePlate(e); e.dispose(); this.enemies.splice(i, 1);
+      if (this.enemyById.get(e.id) === e) this.enemyById.delete(e.id);
+      if (this.player.target === e) { this.player.target = null; this.player.autoAttack = false; }
+    }
     for (const n of this.npcs) {
       const d = dist2d(n.pos, p.pos); n.ch.root.visible = d < 45;
       if (d < 45) n.an.update(dt);
       if (d < 6) n.ch.root.rotation.y = Math.atan2(p.pos.x - n.pos.x, p.pos.z - n.pos.z);
     }
 
-    // camps respawn
+    // camps respawn (host / single player only)
     for (const c of this.camps) {
       for (let i = c.respawnQ.length - 1; i >= 0; i--) {
         c.respawnQ[i] -= dt;
@@ -347,8 +421,9 @@ export class Game {
     for (const u of this.uniques) {
       if (u.enemy) continue;
       u.timer -= dt;
-      if (u.timer <= 0) this.spawnUnique(u);
+      if (u.timer <= 0 && !this.isGuest) this.spawnUnique(u);
     }
+    this.coop?.update(dt);
 
     this.updateProjectiles(dt);
     this.updateLoot(dt);
@@ -388,8 +463,10 @@ export class Game {
     PM.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse); FRUSTUM.setFromProjectionMatrix(PM);
     for (const e of this.enemies) {
       const d = dist2d(e.pos, p.pos);
-      const busy = !e.alive || e.state === 'chase' || e.state === 'cast' || e.state === 'return';
-      e.awake = busy || d < 36;
+      let dn = d;
+      if (this.coop && !e.remote) for (const r of this.coop.remotes.values()) if (!r.gone) dn = Math.min(dn, dist2d(e.pos, r.pos));
+      const busy = e.remote || !e.alive || e.state === 'chase' || e.state === 'cast' || e.state === 'return';
+      e.awake = busy || dn < 36;
       if (!e.awake) { if (e.root.visible) e.root.visible = false; continue; }
       SPH.center.set(e.pos.x, e.pos.y + 1.2 * e.scale, e.pos.z); SPH.radius = 2 * e.scale;
       const onScreen = d < 60 && FRUSTUM.intersectsSphere(SPH);
@@ -405,7 +482,7 @@ export class Game {
       const pr = this.projectiles[i];
       pr.life -= dt;
       const tgt = pr.target;
-      const aim = tgt && (tgt.alive !== false) && !(tgt === p && p.dead) ? TMP.copy(tgt.pos).setY(tgt.pos.y + 1.1 * (tgt.scale || 1)) : null;
+      const aim = tgt && tgt.alive !== false && !tgt.dead && !tgt.gone ? TMP.copy(tgt.pos).setY(tgt.pos.y + 1.1 * (tgt.scale || 1)) : null;
       if (aim) { const dir = aim.clone().sub(pr.pos); const d = dir.length(); dir.normalize(); pr.vel = dir.multiplyScalar(pr.speed); if (d < 0.7) pr.life = -1, pr.hit = true; }
       if (pr.vel) pr.pos.addScaledVector(pr.vel, dt);
       pr.mesh.position.copy(pr.pos);
@@ -422,7 +499,7 @@ export class Game {
   projectileHit(pr) {
     const at = pr.pos.clone();
     if (pr.kind === 'enemyBolt') {
-      if (pr.hit && pr.owner.alive) this.damage(pr.owner, this.player, pr.mult);
+      if (pr.hit && !pr.visual && pr.owner.alive && pr.target && !pr.target.dead) this.damage(pr.owner, pr.target, pr.mult);
       this.fx.burst(at, 14, pr.color, { speed: 4, size: 0.4, life: 0.4 });
       return;
     }
@@ -432,10 +509,10 @@ export class Game {
       this.fx.groundRing(g, { color: 0xff7a2a, r0: 0.5, r1: pr.aoe, dur: 0.4 });
       this.fx.burst(at, 60, 0xff7a2a, { speed: 9, up: 4, size: 0.7, life: 0.6, grav: 2 });
       this.fx.burst(at, 20, 0xffe08a, { speed: 5, up: 3, size: 0.5, life: 0.4 });
-      for (const e of this.enemiesNear(at, pr.aoe)) this.damage(pr.owner, e, pr.mult * (e === pr.target ? 1 : 0.7), { knock: 0.8 });
+      if (!pr.visual) for (const e of this.enemiesNear(at, pr.aoe)) this.damage(pr.owner, e, pr.mult * (e === pr.target ? 1 : 0.7), { knock: 0.8 });
       return;
     }
-    if (pr.hit && pr.target?.alive) this.damage(pr.owner, pr.target, pr.mult, { knock: 0.15 });
+    if (pr.hit && !pr.visual && pr.target?.alive) this.damage(pr.owner, pr.target, pr.mult, { knock: 0.15 });
     this.fx.burst(at, 16, pr.color, { speed: 5, size: 0.4, life: 0.35 });
   }
 
@@ -456,10 +533,35 @@ export class Game {
       l.mesh.position.set(l.pos.x, l.pos.y + l.y + (l.y === 0 ? 0.08 + Math.sin(this.time * 3 + i) * 0.06 : 0), l.pos.z);
       l.mesh.rotation.y += dt * (l.kind === 'gold' ? 2 : 0.8);
       if (l.beam) l.beam.material.opacity = 0.3 + Math.sin(this.time * 4) * 0.12;
-      if (!p.dead && l.t > 0.5 && dist2d(l.pos, p.pos) < 2.4) {
-        if (this.pickup(l)) { l.flying = true; l.flyStart = l.t; if (l.beam) { this.scene.remove(l.beam); l.beam = null; } }
+      if (l.pending && this.time - l.pending > 1.5) l.pending = 0;
+      if (!p.dead && l.t > 0.5 && !l.pending && !l.taken && dist2d(l.pos, p.pos) < 2.4) {
+        if (l.shared) {
+          // Shared loot: first come, first served — the host decides.
+          if (l.kind === 'item' && this.save.bag.length >= 24 && this.save.equip[l.data.slot]) { if (!l.fullWarn) { l.fullWarn = true; this.ui.toast('Çanta dolu!', '#ff6a6a'); } }
+          else if (this.coop.isHost) this.hostPick(l.lid, this.coop.id);
+          else { this.coop.send({ t: 'pick', to: this.coop.hostId, lid: l.lid }); l.pending = this.time; }
+        } else if (this.pickup(l)) this.flyLoot(l);
       }
       if (l.t > 120) this.removeLoot(i);
+    }
+  }
+  flyLoot(l) { l.flying = true; l.flyStart = l.t; if (l.beam) { this.scene.remove(l.beam); l.beam = null; } }
+  hostPick(lid, by) {
+    const l = this.loot.find((x) => x.lid === lid);
+    if (!l || l.taken) return;
+    l.taken = true;
+    this.coop.send({ t: 'picked', lid, by });
+    this.onPicked(lid, by);
+  }
+  onPicked(lid, by) {
+    const i = this.loot.findIndex((x) => x.lid === lid); if (i < 0) return;
+    const l = this.loot[i]; l.taken = true;
+    if (by === this.coop.id) { if (this.pickup(l)) this.flyLoot(l); else this.removeLoot(i); }
+    else {
+      const r = this.coop.remotes.get(by);
+      this.fx.burst(l.mesh.position.clone().setY(l.mesh.position.y + 0.4), 10, l.color, { speed: 2, up: 3, size: 0.3 });
+      if (r && l.kind === 'item' && dist2d(l.pos, this.player.pos) < 25) this.ui.toast(`${r.name}: ${l.data.name}`, RARITY[l.data.rarity].color);
+      this.removeLoot(i);
     }
   }
   removeLoot(i) {

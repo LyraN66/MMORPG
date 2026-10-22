@@ -243,3 +243,17 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; } .dot.red { background: #ff3a2a; } .dot.org { background: #ffa040; } .dot.blue { background: #6ad1ff; }
 .ring { display: inline-block; width: 9px; height: 9px; border-radius: 50%; border: 1.5px dashed #ffe08a; vertical-align: middle; }
 @media (max-width: 640px) { .mapgrid { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; } #maplegend { max-height: 30vh; } }
+
+/* ---------- co-op ---------- */
+.plate.ally .nm { color: #9dffb0; font-size: 12px; } .plate.ally .hpb { display: block; width: 60px; } .plate.ally .hpb i { background: #4ccf5e; }
+.dot.green { background: #5dff7a; }
+#room { position: absolute; left: 50%; bottom: calc(26px + var(--sb)); transform: translateX(-50%); font-size: 11px; color: #c8ffd4; background: rgba(0,0,0,.55); padding: 3px 10px; border-radius: 10px; border: 1px solid rgba(93,255,122,.35); white-space: nowrap; }
+#room b { color: #fff; letter-spacing: .1em; }
+.dmg.ally { color: #d0ffd8; font-size: 14px; }
+#lobby .lrow { display: flex; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+#lobby input { flex: 1; min-width: 120px; background: rgba(0,0,0,.5); border: 1px solid var(--line); color: #fff; border-radius: 10px; padding: 10px 12px; font-size: 18px; letter-spacing: .3em; text-align: center; user-select: text; }
+#lobby .lstatus { min-height: 20px; font-size: 13px; color: #ffe08a; margin: 6px 0; }
+#lobby .lstatus.err { color: #ff7a6a; }
+#lobby details { font-size: 12px; opacity: .8; margin-top: 8px; } #lobby details input { font-size: 12px; letter-spacing: 0; text-align: left; width: 100%; margin-top: 6px; }
+#lobby .lhint { font-size: 12.5px; opacity: .8; line-height: 1.45; margin: 0 0 6px; }
+.lcode { font: 900 44px var(--title); letter-spacing: .25em; text-align: center; color: var(--gold2); margin: 6px 0; }

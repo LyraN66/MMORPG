@@ -82,7 +82,8 @@ export function makeCharacter(model, { weapon, offhand, hideMeshes } = {}) {
 
 // Small helper that plays looping/one-shot animations with crossfades.
 export class Animator {
-  constructor(ch) { this.ch = ch; this.current = null; this.lock = 0; this.speed = 1; }
+  // seq/once/ts let the current animation be mirrored over the network.
+  constructor(ch) { this.ch = ch; this.current = null; this.lock = 0; this.speed = 1; this.seq = 0; }
   loop(name, fade = 0.2, timeScale = 1) {
     if (this.lock > 0) return;
     if (this.current?.name === name) { this.current.action.timeScale = timeScale; return; }
@@ -90,14 +91,15 @@ export class Animator {
     a.reset(); a.setLoop(THREE.LoopRepeat, Infinity); a.clampWhenFinished = false; a.timeScale = timeScale;
     a.enabled = true; a.setEffectiveWeight(1); a.play();
     if (this.current) this.current.action.crossFadeTo(a, fade, false);
-    this.current = { name, action: a };
+    this.current = { name, action: a, once: false, ts: timeScale };
   }
   once(name, { fade = 0.12, timeScale = 1, hold = false, lockFor } = {}) {
     const a = this.ch.get(name); if (!a) return 0;
     a.reset(); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; a.timeScale = timeScale;
     a.enabled = true; a.setEffectiveWeight(1); a.play();
     if (this.current && this.current.action !== a) this.current.action.crossFadeTo(a, fade, false);
-    this.current = { name, action: a };
+    this.current = { name, action: a, once: true, ts: timeScale, hold };
+    this.seq++;
     const dur = a.getClip().duration / timeScale;
     this.lock = hold ? Infinity : (lockFor ?? dur * 0.92);
     return dur;

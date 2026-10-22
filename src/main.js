@@ -16,6 +16,7 @@ import { Input } from './input.js';
 import { initAudio } from './audio.js';
 import { CLASSES, GAME_NAME } from './data.js';
 import { loadSave, newSave, deleteSave, saveGame } from './save.js';
+import { Net, serverUrl, setServerUrl, DEFAULT_SERVER } from './net.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -115,6 +116,8 @@ function showTitle() {
   if (save) $('#t-continue').innerHTML = `Devam Et <small>${save.name} · ${CLASSES[save.cls].name} · Sv.${save.level}</small>`;
   $('#t-new').textContent = save ? 'Yeni Karakter' : 'Oyuna Başla';
   $('#t-continue').onclick = () => { initAudio(); startGame(save); };
+  $('#t-coop').classList.toggle('hidden', !save);
+  $('#t-coop').onclick = () => { initAudio(); openLobby(save); };
   $('#t-new').onclick = () => { initAudio(); $('#title').classList.add('hidden'); showClassSelect(); };
 }
 function showClassSelect() {
@@ -146,10 +149,47 @@ function focusPreview() {
   }
 }
 
-function startGame(save) {
+// ---------- co-op lobby ----------
+function openLobby(save) {
+  const st = $('#l-status'), btns = ['#l-create', '#l-join'].map((q) => $(q));
+  st.textContent = ''; st.className = 'lstatus';
+  $('#l-server').value = serverUrl();
+  $('#lobby').classList.remove('hidden');
+  $('#lobby-x').onclick = () => $('#lobby').classList.add('hidden');
+  const info = () => ({ name: save.name, cls: save.cls, lv: save.level });
+  const go = async (msg) => {
+    const custom = $('#l-server').value.trim();
+    setServerUrl(custom && custom !== DEFAULT_SERVER ? custom : '');
+    const net = new Net();
+    btns.forEach((b) => (b.disabled = true));
+    st.className = 'lstatus'; st.textContent = 'Sunucuya bağlanılıyor…';
+    const slow = setTimeout(() => { st.textContent = 'Sunucu uyanıyor… (ücretsiz sunucu ilk açılışta 1 dakika kadar sürebilir)'; }, 4000);
+    try {
+      await net.connect();
+      clearTimeout(slow); st.textContent = msg.t === 'create' ? 'Oda kuruluyor…' : 'Odaya giriliyor…';
+      await net.enter(msg);
+      $('#lobby').classList.add('hidden');
+      startGame(save, net);
+      if (net.isHost) setTimeout(() => ui.announce(`👥 Oda kodu: ${net.code} — arkadaşına söyle`, 'skill'), 600);
+      else ui.announce('👥 Odaya katıldın!', 'skill');
+    } catch (e) {
+      clearTimeout(slow); net.close();
+      st.className = 'lstatus err'; st.textContent = e.message;
+    }
+    btns.forEach((b) => (b.disabled = false));
+  };
+  $('#l-create').onclick = () => go({ t: 'create', info: info() });
+  $('#l-join').onclick = () => {
+    const code = $('#l-code').value.replace(/\D/g, '');
+    if (code.length !== 4) { st.className = 'lstatus err'; st.textContent = '4 haneli oda kodunu yaz'; return; }
+    go({ t: 'join', code, info: info() });
+  };
+}
+
+function startGame(save, net) {
   $('#title').classList.add('hidden'); $('#cselect').classList.add('hidden');
   clearPreview();
-  game = new Game({ renderer, scene, camera, ui, input, save, quality, world, fx });
+  game = new Game({ renderer, scene, camera, ui, input, save, quality, world, fx, net });
   input.onTap = (x, y) => game.handleTap(x, y);
   input.onKey = (k) => {
     if (k === ' ' || k === 'j') game.attackButton();

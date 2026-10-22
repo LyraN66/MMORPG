@@ -35,7 +35,7 @@ class Unit {
 export class Player extends Unit {
   constructor(game, save) {
     super(game);
-    this.save = save;
+    this.save = save; this.isPlayer = true;
     this.cls = CLASSES[save.cls];
     this.radius = 0.55;
     const hide = save.cls === 'knight' ? [] : [];
@@ -151,6 +151,7 @@ export class Player extends Unit {
     if (this.cls.id === 'knight') {
       const anims = ['1H_Melee_Attack_Slice_Diagonal', '1H_Melee_Attack_Slice_Horizontal', '1H_Melee_Attack_Chop'];
       const name = anims[this.combo % 3]; const combo = this.combo % 3; this.combo++;
+      g.coop?.sendAct({ s: 'basic', c: combo, tid: t.id });
       const dur = this.anim.once(name, { timeScale: 1.25 * spd, lockFor: this.cls.atkSpeed * 0.75 });
       this.cast = { t: 0, dur: dur * 0.5, face: t.pos, events: [{ at: dur * 0.28, fn: () => {
         sfx.swing();
@@ -163,6 +164,7 @@ export class Player extends Unit {
       } }] };
     } else {
       const dur = this.anim.once('Spellcast_Shoot', { timeScale: 1.5 * spd, lockFor: this.cls.atkSpeed * 0.7 });
+      g.coop?.sendAct({ s: 'basic', tid: t.id });
       this.cast = { t: 0, dur: dur * 0.45, face: t.pos, events: [{ at: dur * 0.22, fn: () => {
         sfx.magic();
         const from = new THREE.Vector3(); this.ch.slotR.getWorldPosition(from); from.y += 0.6;
@@ -183,6 +185,7 @@ export class Player extends Unit {
     this.mp -= s.mp; this.cds[s.id] = s.cd; this.moveTarget = null;
     const t = this.target;
     if (t) this.autoAttack = true;
+    g.coop?.sendAct({ s: s.id, tid: t?.id, tx: t?.pos.x, tz: t?.pos.z });
     switch (s.id) {
       case 'whirl': {
         const dur = this.anim.once('2H_Melee_Attack_Spin', { timeScale: 1.25, lockFor: 0.8 });
@@ -206,7 +209,7 @@ export class Player extends Unit {
           this.cast.dash = null; this.anim.once('Block_Attack', { timeScale: 1.4, lockFor: 0.3 });
           g.fx.groundRing(this.pos, { color: 0x9fd0ff, r0: 0.5, r1: 3, dur: 0.4 }); g.fx.shake(0.35); g.fx.stop(0.07);
           g.fx.burst(t.pos.clone().setY(t.pos.y + 1.2), 25, 0xbfe3ff, { speed: 7, size: 0.5 });
-          for (const e of g.enemiesNear(t.pos, 2.4)) { g.damage(this, e, e === t ? 1.5 : 0.7, { knock: 1.6 }); e.stunT = Math.max(e.stunT, e === t ? 1.5 : 0.8); }
+          for (const e of g.enemiesNear(t.pos, 2.4)) g.damage(this, e, e === t ? 1.5 : 0.7, { knock: 1.6, stun: e === t ? 1.5 : 0.8 });
         } }] };
         break;
       }
@@ -233,7 +236,7 @@ export class Player extends Unit {
           sfx.frost(); g.fx.groundRing(this.pos, { color: 0x9fe8ff, r0: 0.5, r1: 5.5, dur: 0.6, opacity: 1 });
           g.fx.groundRing(this.pos, { color: 0xffffff, r0: 0.5, r1: 4.5, dur: 0.45 });
           g.fx.burst(this.pos.clone().setY(this.pos.y + 0.4), 70, 0xaee9ff, { speed: 10, up: 1.5, size: 0.45, life: 0.7, grav: 1, spread: 1 });
-          for (const e of g.enemiesNear(this.pos, 5.5)) { g.damage(this, e, 1.3, { knock: 0.4, color: 'frost' }); e.slowT = 3; }
+          for (const e of g.enemiesNear(this.pos, 5.5)) g.damage(this, e, 1.3, { knock: 0.4, color: 'frost', slow: 3 });
           g.fx.shake(0.2);
         } }] };
         break;
@@ -287,8 +290,9 @@ export class Player extends Unit {
 const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
 
 export class Enemy extends Unit {
-  constructor(game, type, level, home, unique) {
+  constructor(game, type, level, home, unique, opts = {}) {
     super(game);
+    this.isEnemy = true; this.tgt = null; this.remote = !!opts.remote;
     const T = unique ? ENEMIES[unique.type] : ENEMIES[type];
     this.T = T; this.type = unique ? unique.type : type; this.unique = unique || null;
     this.level = level; this.home = home.clone();
@@ -321,17 +325,19 @@ export class Enemy extends Unit {
     const d = this.anim.once('Spawn_Ground_Skeletons', { timeScale: unique ? 0.8 : 1.3, lockFor: 0 });
     this.stateT = Math.min(d, 2.2);
     game.fx.dust(this.pos, 10, 0x6a5a48, scale);
+    this.netPos = this.pos.clone(); this.netYaw = this.yaw;
   }
 
   get isBoss() { return !!this.unique; }
 
   update(dt) {
-    const g = this.game, p = g.player;
+    const g = this.game;
     // Animation LOD: off-screen characters don't pose their skeleton; distant ones update at half rate.
     const adt = dt * (this.slowT > 0 ? 0.6 : 1);
     this.animAcc = (this.animAcc || 0) + adt;
     if (this.animate !== false) { this.anim.update(adt, Math.min(this.animAcc, 2)); this.animAcc = 0; }
     else this.anim.update(adt, 0);
+    if (this.remote) { this.updateRemote(dt); return; }
     this.slowT -= dt; this.stunT -= dt; this.atkCd -= dt; this.stateT -= dt;
     if (this.slowT > 0 && Math.random() < 0.2) g.fx.trail(TMP.copy(this.pos).setY(this.pos.y + 1 + Math.random()), 0x9fe8ff, 0.3, 0.5);
     if (!this.alive) {
@@ -345,6 +351,9 @@ export class Enemy extends Unit {
     if (this.state === 'spawn') { if (this.stateT <= 0) this.state = 'idle'; this.syncModel(dt); return; }
     if (this.stunT > 0) { this.anim.loop('Idle', 0.1, 0.3); if (Math.random() < 0.3) g.fx.trail(TMP.copy(this.pos).setY(this.pos.y + 2.4 * this.scale), 0xffe066, 0.25, 0.4); this.syncModel(dt); return; }
 
+    // Target: whoever we're already fighting, otherwise the nearest living player.
+    if (this.tgt && (this.tgt.dead || this.tgt.gone)) this.tgt = null;
+    const p = this.tgt || g.nearestPlayer(this.pos) || g.player;
     const dp = p.dead ? 999 : dist2d(this.pos, p.pos);
     const dh = dist2d(this.pos, this.home);
     const slow = this.slowT > 0 ? 0.4 : 1;
@@ -370,7 +379,7 @@ export class Enemy extends Unit {
     }
 
     if (this.state === 'idle' || this.state === 'wander') {
-      if (dp < this.T.aggro * (this.isBoss ? 1.6 : 1)) { this.aggro(); }
+      if (dp < this.T.aggro * (this.isBoss ? 1.6 : 1)) { this.tgt = p; this.aggro(); }
       else {
         this.wanderT -= dt;
         if (this.wanderT <= 0) {
@@ -384,7 +393,7 @@ export class Enemy extends Unit {
         } else this.anim.loop('Idle', 0.3);
       }
     } else if (this.state === 'chase') {
-      if (p.dead || dh > (this.isBoss ? 30 : 24)) { this.state = 'return'; }
+      if (p.dead || dh > (this.isBoss ? 30 : 24)) { this.state = 'return'; this.tgt = null; }
       else {
         if (this.isBoss) this.bossThink(dt, dp);
         if (this.state !== 'chase') { this.syncModel(dt); return; }
@@ -421,11 +430,11 @@ export class Enemy extends Unit {
     if (this.state === 'chase' || this.state === 'cast' || !this.alive) return;
     const first = this.state !== 'return';
     this.state = 'chase';
-    if (this.isBoss && first && !this.roared) { this.roared = true; this.startCast('Taunt', 1.6, [{ at: 0.3, fn: () => { sfx.roar(); this.game.fx.shake(0.6); this.game.fx.groundRing(this.pos, { color: this.unique.tint, r0: 1, r1: 12, dur: 1 }); } }], 0.9); }
+    if (this.isBoss && first && !this.roared) { this.roared = true; this.startCast('Taunt', 1.6, [{ at: 0.3, fn: () => this.game.efx('roar', { x: this.pos.x, z: this.pos.z, c: this.unique.tint, r: 12 }) }], 0.9); }
   }
 
   attack() {
-    const g = this.game, p = g.player;
+    const g = this.game, p = this.tgt || g.player;
     this.atkCd = this.T.atkTime * (this.enraged ? 0.75 : 1) * (0.9 + Math.random() * 0.2);
     if (this.T.ranged) {
       const dur = this.anim.once('Spellcast_Shoot', { timeScale: 1.1, lockFor: 0.8 });
@@ -433,6 +442,7 @@ export class Enemy extends Unit {
         if (!this.alive) return;
         const from = this.pos.clone(); from.y += 1.6 * this.scale;
         g.projectile({ from, target: p, speed: 11, color: 0xa66bff, size: 0.55, owner: this, mult: 1, kind: 'enemyBolt' });
+        g.efx('ebolt', { e: this.id, to: p.netId ?? -1 }, true);
       });
     } else {
       const big = this.isBoss;
@@ -442,7 +452,7 @@ export class Enemy extends Unit {
         if (!this.alive || this.stunT > 0) return;
         sfx.swing();
         if (!p.dead && dist2d(this.pos, p.pos) < this.range + p.radius + 0.6) g.damage(this, p, 1);
-        if (big) { g.fx.shake(0.3); g.fx.groundRing(this.pos.clone().add(new THREE.Vector3(Math.sin(this.yaw) * 2, 0, Math.cos(this.yaw) * 2)), { color: 0xffffff, r0: 0.5, r1: 2.5, dur: 0.3 }); }
+        if (big) g.efx('bigswing', { x: this.pos.x + Math.sin(this.yaw) * 2, z: this.pos.z + Math.cos(this.yaw) * 2 });
       });
     }
   }
@@ -454,12 +464,11 @@ export class Enemy extends Unit {
   }
 
   bossThink(dt, dp) {
-    const g = this.game, p = g.player;
+    const g = this.game, p = this.tgt || g.player;
     this.abilityT -= dt;
     if (!this.enraged && this.hp < this.maxHp * 0.35) {
       this.enraged = true;
-      g.ui.announce(`${this.name} öfkelendi!`, 'boss');
-      this.startCast('Taunt', 1.4, [{ at: 0.2, fn: () => { sfx.roar(); g.fx.shake(0.7); g.fx.flash('rgba(255,30,30,0.25)'); g.fx.groundRing(this.pos, { color: 0xff2222, r0: 1, r1: 14, dur: 0.9 }); } }], 1);
+      this.startCast('Taunt', 1.4, [{ at: 0.2, fn: () => g.efx('enrage', { x: this.pos.x, z: this.pos.z, name: this.name }) }], 1);
       for (const m of this.ch.materials) m.color.lerp(new THREE.Color(0xff4040), 0.25);
       return;
     }
@@ -469,16 +478,13 @@ export class Enemy extends Unit {
     if (roll < 0.42) {
       // Leap slam on player position
       const at = p.pos.clone(); this.abilityT = this.enraged ? 4 : 6;
-      g.fx.telegraph(at, big ? 4.2 : 3.4, 1.15);
-      sfx.warn();
+      g.efx('tele', { x: at.x, z: at.z, r: big ? 4.2 : 3.4, dur: 1.15 });
       this.startCast('1H_Melee_Attack_Jump_Chop', 1.4, [
         { at: 0.35, fn: () => { this.leapFrom = this.pos.clone(); this.leapTo = at.clone().addScaledVector(TMP.subVectors(this.pos, at).setY(0).normalize(), 1.2); } },
         { at: 1.1, fn: () => {
           if (this.leapTo) this.pos.copy(this.leapTo); this.leapTo = null; g.world.resolve(this.pos, this.radius);
-          sfx.boom(true); g.fx.shake(0.9); g.fx.stop(0.08);
-          g.fx.groundRing(at, { color: 0xff6a3a, r0: 0.5, r1: big ? 5.5 : 4.5, dur: 0.5 });
-          g.fx.dust(at, 20, 0x6a5a48, 2); g.fx.burst(at.clone().setY(at.y + 0.3), 40, 0xff8a3a, { speed: 9, up: 4, size: 0.6 });
-          if (!p.dead && dist2d(p.pos, at) < (big ? 4.2 : 3.4) + p.radius) g.damage(this, p, 2.2);
+          g.efx('slam', { x: at.x, z: at.z, r: big ? 5.5 : 4.5 });
+          for (const q of g.players()) if (!q.dead && dist2d(q.pos, at) < (big ? 4.2 : 3.4) + q.radius) g.damage(this, q, 2.2);
         } },
       ], 0.85, false);
       this.castFace = true;
@@ -486,8 +492,8 @@ export class Enemy extends Unit {
       // Spin attack chasing player
       this.abilityT = this.enraged ? 5 : 7;
       const ev = []; for (let k = 0; k < 6; k++) ev.push({ at: 0.3 + k * 0.4, fn: () => {
-        sfx.spin(); g.fx.groundRing(this.pos, { color: this.unique.tint, r0: 1, r1: 3.6 * this.scale / 2, dur: 0.3, opacity: 0.8 });
-        if (!p.dead && dist2d(p.pos, this.pos) < 3.2 * this.scale / 2 + p.radius) g.damage(this, p, 0.55);
+        g.efx('spin', { x: this.pos.x, z: this.pos.z, c: this.unique.tint, r: 3.6 * this.scale / 2 });
+        for (const q of g.players()) if (!q.dead && dist2d(q.pos, this.pos) < 3.2 * this.scale / 2 + q.radius) g.damage(this, q, 0.55);
       } });
       ev.push({ at: 2.7, fn: () => { this.spinning = false; } });
       this.spinning = true;
@@ -497,7 +503,7 @@ export class Enemy extends Unit {
       this.abilityT = this.enraged ? 7 : 10;
       if (g.enemies.filter((e) => e.summoned && e.alive).length >= 6) { this.abilityT = 1; return; }
       this.startCast('Spellcast_Summon', 1.6, [{ at: 0.8, fn: () => {
-        sfx.roar(); g.fx.groundRing(this.pos, { color: 0x8a5aff, r0: 1, r1: 8, dur: 0.8 });
+        g.efx('summon', { x: this.pos.x, z: this.pos.z });
         const n = big ? 3 : 2;
         for (let k = 0; k < n; k++) {
           const a = Math.random() * 6.28, at = this.pos.clone().add(new THREE.Vector3(Math.cos(a) * 3.5, 0, Math.sin(a) * 3.5));
@@ -511,6 +517,9 @@ export class Enemy extends Unit {
   takeHit(amount, from, opts = {}) {
     if (!this.alive) return;
     this.hp -= amount; this.hitFlash();
+    if (opts.stun) this.stunT = Math.max(this.stunT, opts.stun);
+    if (opts.slow) this.slowT = Math.max(this.slowT, opts.slow);
+    if (from && from.isPlayer && (!this.tgt || this.state !== 'chase')) this.tgt = from;
     if (opts.knock && !this.isBoss && from) {
       TMP.subVectors(this.pos, from.pos).setY(0).normalize();
       this.knock.addScaledVector(TMP, opts.knock);
@@ -528,6 +537,40 @@ export class Enemy extends Unit {
     sfx.bone();
     this.game.fx.bones(this.pos, this.isBoss ? 60 : 12);
     this.game.onEnemyKilled(this, killer);
+  }
+
+  // Guest side: this enemy is simulated by the host; just follow its snapshots.
+  updateRemote(dt) {
+    const g = this.game;
+    this.slowT -= dt;
+    if (!this.alive) {
+      this.deadT += dt;
+      if (this.deadT > 2.5) this.root.position.y -= dt * 0.6;
+      if (this.deadT > 5) this.remove = true;
+      return;
+    }
+    const k = 1 - Math.exp(-dt * 12);
+    this.pos.lerp(this.netPos, k);
+    this.yaw = lerpAngle(this.yaw, this.netYaw, k);
+    const na = this.netAnim;
+    if (na) {
+      if (na.once && na.seq !== this.lastSeq) { this.anim.unlock(); this.anim.once(na.name, { timeScale: na.ts, lockFor: 0 }); }
+      else if (!na.once && this.anim.current?.name !== na.name) { this.anim.unlock(); this.anim.loop(na.name, 0.2, na.ts); }
+      this.lastSeq = na.seq;
+    }
+    if (this.netEnraged && !this.enraged) { this.enraged = true; for (const m of this.ch.materials) m.color.lerp(new THREE.Color(0xff4040), 0.25); }
+    if (this.slowT > 0 && Math.random() < 0.2) g.fx.trail(TMP.copy(this.pos).setY(this.pos.y + 1 + Math.random()), 0x9fe8ff, 0.3, 0.5);
+    if (this.stunned && Math.random() < 0.3) g.fx.trail(TMP.copy(this.pos).setY(this.pos.y + 2.4 * this.scale), 0xffe066, 0.25, 0.4);
+    if (this.aura) this.aura.material.opacity = (this.enraged ? 0.55 : 0.3) + Math.sin(g.time * 4) * 0.08;
+    this.syncModel(dt);
+  }
+  dieRemote() {
+    if (!this.alive) return;
+    this.alive = false; this.state = 'dead';
+    this.anim.unlock(); this.anim.once(Math.random() < 0.7 ? 'Death_C_Skeletons' : 'Death_A', { hold: true, timeScale: 1.1 });
+    this.root.remove(this.hitbox);
+    if (this.aura) this.aura.visible = false;
+    sfx.bone(); this.game.fx.bones(this.pos, this.isBoss ? 60 : 12);
   }
 
   dispose() {
