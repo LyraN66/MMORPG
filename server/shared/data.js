@@ -271,3 +271,42 @@ export const elixirPrice = (e, lv) => Math.round(e.base + e.per * lv);
 export const chestPrice = (lv) => Math.round(60 + lv * 35);
 export const bagPrice = (max) => [400, 1500, 5000, 15000][Math.round((max - 24) / 6)] ?? null; // 24 → 48 slots
 export const travelPrice = (lv) => Math.round(5 + lv * 1.5);
+
+// ---------- mounts ----------
+// Bought from merchants; ridden for extra move speed (dismounts when fighting). seat = rider height as a share of the model's height.
+export const MOUNTS = [
+  { id: 'wolf', name: 'Sadık Köpek', icon: '🐕', model: 'Blob_Dog', h: 1.7, seat: 0.62, speed: 0.35, price: 1500, lv: 5 },
+  { id: 'chicken', name: 'Dev Tavuk', icon: '🐔', model: 'Blob_Chicken', h: 2.1, seat: 0.6, speed: 0.5, price: 15000, lv: 25 },
+  { id: 'alpaca', name: 'Uçan Alpaka', icon: '🦙', model: 'Flying_Alpaking', h: 2.2, seat: 0.62, speed: 0.7, price: 80000, lv: 50 },
+];
+export const MOUNT = Object.fromEntries(MOUNTS.map((m) => [m.id, m]));
+
+// ---------- achievements & titles ----------
+const st = (s) => s.stats || {};
+const bk = (s, id) => (st(s).bk || {})[id] || 0;
+export const ACHIEVEMENTS = [
+  { id: 'k100', name: 'Avcı', desc: '100 canavar öldür', title: 'Avcı', p: (s) => [st(s).kills || 0, 100] },
+  { id: 'k1000', name: 'Kasap', desc: '1.000 canavar öldür', title: 'Kasap', p: (s) => [st(s).kills || 0, 1000] },
+  { id: 'k10000', name: 'Kıyamet', desc: '10.000 canavar öldür', title: 'Kıyamet Getiren', p: (s) => [st(s).kills || 0, 10000] },
+  { id: 'u1', name: 'İlk Kan', desc: 'Bir boss yen', title: null, p: (s) => [st(s).uniques || 0, 1] },
+  { id: 'u25', name: 'Boss Avcısı', desc: '25 boss yen', title: 'Boss Avcısı', p: (s) => [st(s).uniques || 0, 25] },
+  { id: 'u100', name: 'Kâbus', desc: '100 boss yen', title: 'Kâbus', p: (s) => [st(s).uniques || 0, 100] },
+  { id: 'morvath', name: 'Vadinin Kurtarıcısı', desc: 'Kemik Lordu Morvath\'ı yen', title: 'Vadinin Kurtarıcısı', p: (s) => [bk(s, 'morvath'), 1] },
+  { id: 'ignarok', name: 'Ejder Avcısı', desc: 'Ejder Kral Ignarok\'u yen', title: 'Ejder Avcısı', p: (s) => [bk(s, 'ignarok'), 1] },
+  { id: 'lv25', name: 'Tecrübeli', desc: '25. seviyeye ulaş', title: 'Tecrübeli', p: (s) => [s.level, 25] },
+  { id: 'lv50', name: 'Usta', desc: '50. seviyeye ulaş', title: 'Usta', p: (s) => [s.level, 50] },
+  { id: 'lv100', name: 'Efsane', desc: '100. seviyeye ulaş', title: 'Efsane', p: (s) => [s.level, 100] },
+  { id: 'maps', name: 'Gezgin', desc: '8 haritanın hepsine git', title: 'Gezgin', p: (s) => [(s.visited || ['vadi']).length, 8] },
+  { id: 'q50', name: 'Kahraman', desc: '50 görev tamamla', title: 'Kahraman', p: (s) => [(s.quests?.done || []).length, 50] },
+  { id: 'd1', name: 'Düellocu', desc: 'Bir düello kazan', title: 'Düellocu', p: (s) => [st(s).duelWins || 0, 1] },
+  { id: 'd25', name: 'Gladyatör', desc: '25 düello kazan', title: 'Gladyatör', p: (s) => [st(s).duelWins || 0, 25] },
+  { id: 'd100', name: 'Arena Şampiyonu', desc: '100 düello kazan', title: 'Arena Şampiyonu', p: (s) => [st(s).duelWins || 0, 100] },
+  { id: 'p7', name: 'Örsün Dostu', desc: 'Bir eşyayı +7 yap', title: 'Örsün Dostu', p: (s) => [st(s).maxPlus || 0, 7] },
+  { id: 'p10', name: 'Usta Demirci', desc: 'Bir eşyayı +10 yap', title: 'Usta Demirci', p: (s) => [st(s).maxPlus || 0, 10] },
+  { id: 'g100k', name: 'Zengin', desc: '100.000 altın biriktir', title: 'Zengin', p: (s) => [s.gold, 100000] },
+  { id: 'g1m', name: 'Altın Babası', desc: '1.000.000 altın biriktir', title: 'Altın Babası', p: (s) => [s.gold, 1000000] },
+  { id: 't10', name: 'Tüccar', desc: '10 takas yap', title: 'Tüccar', p: (s) => [st(s).trades || 0, 10] },
+  { id: 'mount', name: 'Süvari', desc: 'Bir binek satın al', title: 'Süvari', p: (s) => [(s.mounts || []).length, 1] },
+  { id: 'mount3', name: 'Ahır Sahibi', desc: 'Bütün binekleri topla', title: 'Hayvan Dostu', p: (s) => [(s.mounts || []).length, MOUNTS.length] },
+];
+export const ACH = Object.fromEntries(ACHIEVEMENTS.map((a) => [a.id, a]));

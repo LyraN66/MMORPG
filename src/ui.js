@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { xpToNext, RARITY, itemStat, PLUS_CHANCE, plusCost, sellPrice, SHOP, MAX_LEVEL , SLOTS, SLOT, STAT_NAMES, itemScore, potionPrice, ELIXIRS, elixirPrice, chestPrice, bagPrice, travelPrice, makeItem, randomSlot } from './data.js';
+import { xpToNext, RARITY, itemStat, PLUS_CHANCE, plusCost, sellPrice, SHOP, MAX_LEVEL , SLOTS, SLOT, STAT_NAMES, itemScore, potionPrice, ELIXIRS, elixirPrice, chestPrice, bagPrice, travelPrice, makeItem, randomSlot , MOUNTS, ACHIEVEMENTS } from './data.js';
 import { sfx, soundOn, setSound } from './audio.js';
 import { saveGame } from './save.js';
 import { BOUNDS, roadX, CAMP_POS, CRYPT_POS, heightAt } from './world.js';
@@ -38,6 +38,8 @@ export class UI {
     $('#atk').onpointerdown = (e) => { e.preventDefault(); game.attackButton(); };
     $('#pot-hp').onpointerdown = (e) => { e.preventDefault(); game.player.usePotion('hp'); };
     $('#pot-mp').onpointerdown = (e) => { e.preventDefault(); game.player.usePotion('mp'); };
+    $('#mount-btn').onpointerdown = (e) => { e.preventDefault(); game.toggleMount(); };
+    $('#btn-ach').onclick = () => this.openAchievements();
     $('#btn-inv').onclick = () => this.openInventory();
     $('#sellall').onclick = () => this.sellAll();
     $('#btn-menu').onclick = () => this.openMenu();
@@ -60,9 +62,9 @@ export class UI {
   }
   removePlate(e) { const p = this.plates.get(e); if (p) { p.el.remove(); this.plates.delete(e); } }
   addPlayerPlate(r) {
-    const el = h('div', 'plate ally', `<div class="nm"><span class="lv"></span> <b></b></div><div class="hpb"><i></i></div>`);
+    const el = h('div', 'plate ally', `<div class="bub hidden"></div><div class="ttl"></div><div class="nm"><span class="lv"></span> <b></b></div><div class="hpb"><i></i></div>`);
     el.style.display = 'none'; this.overlay.appendChild(el);
-    (this.allyPlates ||= new Map()).set(r, { el, lv: el.querySelector('.lv'), nm: el.querySelector('b'), bar: el.querySelector('i') });
+    (this.allyPlates ||= new Map()).set(r, { el, lv: el.querySelector('.lv'), nm: el.querySelector('b'), bar: el.querySelector('i'), ttl: el.querySelector('.ttl'), bub: el.querySelector('.bub') });
   }
   removePlayerPlate(r) { const p = this.allyPlates?.get(r); if (p) { p.el.remove(); this.allyPlates.delete(r); } }
   roomBadge() {
@@ -124,12 +126,19 @@ export class UI {
       if (pl.dc !== dc) { pl.el.dataset.diff = dc; pl.dc = dc; }
     }
     if (this.allyPlates) for (const [r, pl] of this.allyPlates) {
-      const sc = !r.fresh && dist2d(r.pos, p.pos) < 40 && this.project(r.pos, 2.6);
+      const sc = !r.fresh && dist2d(r.pos, p.pos) < 40 && this.project(r.pos, 2.6 + (r.mount ? r.mount.seat : 0));
       if (!sc) { if (pl.shown) { pl.el.style.display = 'none'; pl.shown = false; } continue; }
       if (!pl.shown) { pl.el.style.display = ''; pl.shown = true; }
       pl.el.style.transform = `translate(${sc[0] | 0}px, ${sc[1] | 0}px) translate(-50%, -100%)`;
       const key = r.level + r.name + r.dead;
-      if (pl.key !== key) { pl.key = key; pl.lv.textContent = 'Sv.' + r.level; pl.nm.textContent = r.dead ? `${r.name} (öldü)` : r.name; }
+      const foe = !!g.social?.isFoe(r), party = !!g.social?.inPartyNet(r.netId);
+      const key2 = key + r.title + foe + party;
+      if (pl.key !== key2) {
+        pl.key = key2; pl.lv.textContent = 'Sv.' + r.level; pl.nm.textContent = r.dead ? `${r.name} (öldü)` : r.name;
+        pl.ttl.textContent = r.title ? `« ${r.title} »` : ''; pl.el.classList.toggle('foe', foe); pl.el.classList.toggle('party', party);
+      }
+      const say = r.say && g.time - r.say.t < 5 ? r.say.text : '';
+      if (pl.say !== say) { pl.say = say; pl.bub.textContent = say; pl.bub.classList.toggle('hidden', !say); }
       const w = Math.round(Math.max(0, r.hp / r.maxHp) * 100);
       if (pl.w !== w) { pl.bar.style.width = w + '%'; pl.w = w; }
     }
@@ -183,6 +192,9 @@ export class UI {
     if (p.buffT > 0) $('#buff span').textContent = Math.ceil(p.buffT);
     $('#pot-hp b').textContent = s.potions.hp || 0;
     $('#pot-mp b').textContent = s.potions.mp || 0;
+    const hasMount = !!s.mounts?.length;
+    if (this.mountShown !== hasMount) { this.mountShown = hasMount; $('#mount-btn').classList.toggle('hidden', !hasMount); }
+    if (this.mountOn !== !!p.mount) { this.mountOn = !!p.mount; $('#mount-btn').classList.toggle('on', this.mountOn); }
     p.cls.skills.forEach((sk, i) => {
       const b = this.skillBtns[i]; const cd = p.cds[sk.id] || 0;
       const locked = p.level < sk.unlock;
@@ -667,7 +679,7 @@ export class UI {
   openShop(tab = this.shopTab || 'pots') {
     this.shopTab = tab;
     const s = this.g.save, p = this.g.player, lv = s.level, box = $('#shoplist'); box.innerHTML = '';
-    const tabs = h('div', 'shoptabs', [['pots', '🧪 İksir'], ['elix', '✨ Güç İksiri'], ['chest', '🎁 Sandık'], ['bag', '🎒 Çanta']]
+    const tabs = h('div', 'shoptabs', [['pots', '🧪 İksir'], ['elix', '✨ Güç'], ['chest', '🎁 Sandık'], ['bag', '🎒 Çanta'], ['mount', '🐎 Binek']]
       .map(([id, n]) => `<button class="tab${id === tab ? ' on' : ''}" data-t="${id}">${n}</button>`).join(''));
     tabs.querySelectorAll('button').forEach((b) => (b.onclick = () => { sfx.ui(); this.openShop(b.dataset.t); }));
     box.appendChild(tabs);
@@ -702,6 +714,19 @@ export class UI {
         this.g.giveItem(it); if (rar >= 2) sfx.rare();
         refresh();
       };
+    } else if (tab === 'mount') {
+      s.mounts ||= [];
+      for (const m of MOUNTS) {
+        const own = s.mounts.includes(m.id), low = lv < m.lv;
+        const r = row(m.icon, m.name, `%${Math.round(m.speed * 100)} daha hızlı koşu · Sv.${m.lv}+${own ? ' · <em>Sende var</em>' : ''}`,
+          own ? `<button class="btn ghost">${s.mountPick === m.id || (!s.mountPick && s.mounts.at(-1) === m.id) ? '✔ Seçili' : 'Seç'}</button>` : `<button class="btn" ${low ? 'disabled' : ''}>${m.price.toLocaleString('tr-TR')} 🪙</button>`);
+        r.querySelector('button').onclick = () => {
+          if (own) { s.mountPick = m.id; if (p.mount) this.g.setMount(p, m.id); refresh(); return; }
+          if (!pay(m.price)) return;
+          s.mounts.push(m.id); s.mountPick = m.id; sfx.levelUp(); this.toast(`${m.icon} ${m.name} senin! 🐎 butonuyla bin.`, '#7dff9a'); refresh();
+        };
+      }
+      box.appendChild(h('p', 'shopnote', 'Bineğe sağ alttaki 🐎 butonuyla binersin. Saldırınca ya da hasar alınca inersin.'));
     } else {
       const price = bagPrice(s.bagMax);
       const r = row('🎒', 'Çanta Genişletme', `Çantana 6 yuva ekler · Şu an: ${s.bagMax} yuva (en fazla 48)`, price ? `<button class="btn">${price.toLocaleString('tr-TR')} 🪙</button>` : '<span class="ptag">En büyük çanta</span>');
@@ -752,13 +777,31 @@ export class UI {
       setTimeout(() => {
         const ok = Math.random() < ch;
         anvil.classList.remove('forging');
-        if (ok) { sel.plus++; sfx.enhanceOk(); anvil.classList.add('ok'); this.toast(`Başarılı! ${sel.name} +${sel.plus}`, '#7dff9a'); }
+        if (ok) { sel.plus++; s.stats.maxPlus = Math.max(s.stats.maxPlus || 0, sel.plus); sfx.enhanceOk(); anvil.classList.add('ok'); this.toast(`Başarılı! ${sel.name} +${sel.plus}`, '#7dff9a'); }
         else { if (sel.plus + 1 >= 4) sel.plus = Math.max(0, sel.plus - 1); sfx.enhanceFail(); anvil.classList.add('fail'); this.toast('Güçlendirme başarısız…', '#ff6a6a'); }
         this.g.player.recalc(); this.g.player.updateWeaponLook(); saveGame(s, this.g.player);
         setTimeout(() => { this.openSmith(sel); $('#smith').classList.remove('hidden'); }, 900);
       }, 1200);
     };
     this.openModal('#smith');
+  }
+
+  openAchievements() {
+    const s = this.g.save; s.ach ||= [];
+    $('#ach-sum').textContent = `${s.ach.length}/${ACHIEVEMENTS.length} başarım. Unvanı olanlara dokunarak isminin üstünde göster.`;
+    const box = $('#achlist'); box.innerHTML = '';
+    const none = h('div', 'achrow' + (!s.title ? ' on' : ''), '<div class="ai">🚫</div><div class="an"><b>Unvan gösterme</b></div>');
+    none.onclick = () => { s.title = ''; saveGame(s, this.g.player); this.openAchievements(); };
+    box.appendChild(none);
+    for (const a of ACHIEVEMENTS) {
+      const done = s.ach.includes(a.id), [v, goal] = a.p(s), pct = Math.min(100, Math.round((v / goal) * 100));
+      const el = h('div', 'achrow' + (done ? ' done' : '') + (s.title === a.id ? ' on' : ''), `<div class="ai">${done ? '🏅' : '🔒'}</div>
+        <div class="an"><b>${a.name}</b><small>${a.desc}${a.title ? ` · Unvan: «${a.title}»` : ''}</small>${done ? '' : `<div class="ab"><i style="width:${pct}%"></i></div><small class="av">${Math.min(v, goal).toLocaleString('tr-TR')} / ${goal.toLocaleString('tr-TR')}</small>`}</div>
+        ${done && a.title ? `<span class="atag">${s.title === a.id ? '✔ Takılı' : 'Tak'}</span>` : ''}`);
+      if (done && a.title) el.onclick = () => { s.title = a.id; sfx.ui(); saveGame(s, this.g.player); this.openAchievements(); };
+      box.appendChild(el);
+    }
+    this.openModal('#achm');
   }
 
   openMenu() {

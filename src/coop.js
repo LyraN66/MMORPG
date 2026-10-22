@@ -6,6 +6,8 @@ import { sfx } from './audio.js';
 import { dist2d } from './units.js';
 import { Net } from './net.js';
 import { PROTOCOL } from '../server/shared/version.js';
+import { account, authenticate } from './account.js';
+import { setRemoteSaver } from './save.js';
 
 const lerpAngle = (a, b, t) => { let d = b - a; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return a + d * t; };
 const r2 = (v) => Math.round(v * 100) / 100;
@@ -23,13 +25,21 @@ export class RemotePlayer {
     this.yaw = 0; this.netYaw = 0; this.radius = 0.55;
     this.hp = 1; this.maxHp = 1; this.dead = false; this.gone = false; this.flash = 0; this.fresh = true;
     this.root.visible = false;
+    // Invisible hitbox so other players can be tapped (menu) or targeted in a duel.
+    this.hitbox = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 2.4, 8), new THREE.MeshBasicMaterial({ visible: false }));
+    this.hitbox.position.y = 1.2; this.hitbox.userData.player = this; this.root.add(this.hitbox);
+    this.mountId = null; this.title = '';
     game.ui.addPlayerPlate(this);
   }
+  get alive() { return !this.dead && !this.gone; }
+  get isEnemy() { return false; }
   apply(m) {
     this.netPos.set(m.x, m.y, m.z); this.netYaw = m.yw;
     if (this.fresh) { this.pos.copy(this.netPos); this.yaw = m.yw; this.fresh = false; this.root.visible = true; }
     this.hp = m.hp; this.maxHp = m.mh; this.level = m.lv; this.def = m.df;
     if (m.nm) this.name = m.nm;
+    this.title = m.tl || '';
+    if ((m.mt || null) !== this.mountId) { this.mountId = m.mt || null; this.game.setMount(this, this.mountId); }
     this.netAnim = { name: m.an, seq: m.sq, once: !!m.on, ts: m.ts || 1 };
     const dead = !!m.dd;
     if (dead !== this.dead) {
@@ -52,6 +62,12 @@ export class RemotePlayer {
     this.root.visible = near && !this.fresh;
     this.anim.update(dt, near ? dt : 0);
     this.root.position.copy(this.pos); this.root.rotation.y = this.yaw;
+    if (this.mount) {
+      const mo = this.mount, mv = this.netPos.distanceToSquared(this.pos) > 0.01;
+      this.root.position.y += mo.seat; this.root.position.x -= Math.sin(this.yaw) * mo.back; this.root.position.z -= Math.cos(this.yaw) * mo.back; mo.ch.root.position.copy(this.pos); mo.ch.root.rotation.y = this.yaw; mo.ch.root.visible = this.root.visible;
+      mo.an.loop(mv ? 'Running_C' : 'Idle', 0.15, mv ? 1.6 : 1); mo.an.update(dt, near ? dt : 0);
+      if (this.anim.current?.name === 'Running_A') { this.anim.unlock(); this.anim.loop('Idle', 0.2); }
+    }
     if (this.flash > 0) {
       this.flash = Math.max(0, this.flash - dt * 5);
       for (const m of this.ch.materials) m.emissive.setRGB(this.flash * 1.2, this.flash * 0.4, this.flash * 0.3);
@@ -65,6 +81,7 @@ export class RemotePlayer {
   }
   dispose() {
     this.gone = true; this.dead = true;
+    if (this.mount) this.game.setMount(this, null);
     this.game.scene.remove(this.root);
     this.game.ui.removePlayerPlate(this);
   }
@@ -81,6 +98,7 @@ export class Coop {
     this.g.player.netId = net.id;
     net.onMessage = (m) => this.onMessage(m);
     net.onClose = () => this.reconnect();
+    setRemoteSaver((s, now) => this.net.send({ t: 'save', s, now, g: account.gen || 0 }));
     for (const p of net.peers) this.addRemote(p.id, p.info, true);
   }
   // Connection dropped (phone switched apps, server restarted…): rejoin the world automatically.
@@ -97,13 +115,14 @@ export class Coop {
       const net = new Net(url);
       try {
         await net.connect(60000);
-        await net.enter({ t: 'hello', proto: PROTOCOL, map: g.save.map || 'vadi', info: { name: g.save.name, cls: g.save.cls, lv: g.save.level } });
+        await authenticate(net, 'token', { token: account.token, remember: account.remember });
+        await net.enter({ t: 'hello', proto: PROTOCOL, map: g.save.map || 'vadi' });
         this.attach(net); this.reconnecting = false;
         g.ui.netBanner(null); g.ui.toast('🌍 Yeniden bağlandın', '#7dff9a'); g.ui.roomBadge();
         return;
       } catch (e) {
         net.close();
-        if (/güncel/i.test(e.message)) { this.reconnecting = false; this.lost(e.message); return; }
+        if (/güncel|oturum/i.test(e.message)) { this.reconnecting = false; this.lost(e.message); return; }
       }
     }
     this.reconnecting = false;
@@ -153,7 +172,8 @@ export class Coop {
   sendState() {
     const p = this.g.player, a = p.anim.current;
     this.send({ t: 'ps', x: r2(p.pos.x), y: r2(p.pos.y), z: r2(p.pos.z), yw: r2(p.yaw), hp: Math.ceil(p.hp), mh: p.maxHp, lv: p.level,
-      dd: p.dead ? 1 : 0, an: a?.name || 'Idle', sq: p.anim.seq, on: a?.once ? 1 : 0, ts: r2(a?.ts || 1), df: Math.round(p.effDef), nm: this.g.save.name });
+      dd: p.dead ? 1 : 0, an: a?.name || 'Idle', sq: p.anim.seq, on: a?.once ? 1 : 0, ts: r2(a?.ts || 1), df: Math.round(p.effDef), nm: this.g.save.name,
+      mt: p.mountId || 0, tl: this.g.titleText() });
   }
 
   sendSnapshot() {
@@ -204,6 +224,7 @@ export class Coop {
         break;
       }
       case 'peerLeft': this.removeRemote(m.id); break;
+      case 'kicked': this.lost(m.msg); break;
       case 'closed': this.lost('Odayı kuran oyuncu oyundan ayrıldı.'); break;
       case 'ps': {
         const r = this.remotes.get(m.f) || this.addRemote(m.f, { name: m.nm, cls: 'knight' }, true);
@@ -248,7 +269,7 @@ export class Coop {
         break;
       case 'pick': if (this.isHost) g.hostPick(m.lid, m.f); break;
       case 'picked': g.onPicked(m.lid, m.by); break;
-      default: break;
+      default: g.social?.onMessage(m); break;
     }
   }
 

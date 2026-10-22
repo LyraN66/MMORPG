@@ -49,6 +49,7 @@ export class Net {
     this.id = r.id; this.host = r.host; this.code = r.code; this.peers = r.peers || [];
     return r;
   }
+  get open() { return this.ws?.readyState === 1; }
   send(m) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m)); }
   close() { this.onClose = null; try { this.ws?.close(); } catch { /* ignore */ } }
 }
