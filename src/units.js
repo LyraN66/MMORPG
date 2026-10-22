@@ -92,7 +92,7 @@ export class Player extends Unit {
 
     const mv = input.move; // camera-relative already transformed to world x,z
     let moving = false;
-    const speed = this.cls.moveSpeed * (this.cast ? 0 : 1);
+    const joy = mv.lengthSq() > 0.01;
     if (this.cast) {
       this.cast.t += dt;
       if (this.cast.face) this.faceTo(this.cast.face, dt, 18);
@@ -104,12 +104,29 @@ export class Player extends Unit {
         g.world.resolve(this.pos, this.radius);
         if (Math.random() < 0.8) g.fx.trail(TMP.copy(this.pos).setY(this.pos.y + 1), 0x9fd0ff, 0.7, 0.3);
       }
-    } else if (mv.lengthSq() > 0.01) {
-      this.autoAttack = false; this.moveTarget = null;
+    }
+    // Basic attacks don't root the player (cast.move); skills still do.
+    const rooted = this.cast && !this.cast.move;
+    const speed = this.cls.moveSpeed * (rooted ? 0 : this.cast ? 0.75 : 1);
+    if (rooted) { /* casting a skill */ }
+    else if (joy) {
+      this.moveTarget = null;
       this.pos.x += mv.x * speed * dt; this.pos.z += mv.z * speed * dt;
-      this.yaw = lerpAngle(this.yaw, Math.atan2(mv.x, mv.z), Math.min(1, dt * 14));
       moving = true;
-    } else if (this.autoAttack && this.target) {
+      // Attack on the move: keep hitting the target (or whatever is in reach) while walking.
+      let t = this.target && this.target.alive ? this.target : null;
+      if (this.autoAttack) {
+        const reach = this.cls.range + 0.3;
+        if (t && dist2d(this.pos, t.pos) > reach + t.radius) {
+          const n = g.nearestEnemy(this.pos, reach + 1);
+          if (n) { t = this.target = n; }
+          else if (dist2d(this.pos, t.pos) > reach + t.radius + 4) { this.autoAttack = false; t = null; } // walked away: stop
+        }
+        if (t && this.autoAttack && !this.cast && this.atkCd <= 0 && dist2d(this.pos, t.pos) <= reach + t.radius) this.basicAttack();
+      }
+      if (!this.cast?.face) this.yaw = lerpAngle(this.yaw, Math.atan2(mv.x, mv.z), Math.min(1, dt * 14));
+    } else if (this.cast) { /* finishing an attack while standing */ }
+    else if (this.autoAttack && this.target) {
       const d = dist2d(this.pos, this.target.pos);
       const range = this.cls.range + this.target.radius;
       if (d > range) {
@@ -131,7 +148,7 @@ export class Player extends Unit {
       g.world.resolve(this.pos, this.radius);
       this.anim.loop('Running_A', 0.15, speed / 6.2);
       this.stepT -= dt; if (this.stepT <= 0) { this.stepT = 0.32; sfx.step(); if (Math.random() < 0.5) g.fx.dust(this.pos, 2, 0x7a6a56, 0.6); }
-    } else if (!this.cast) {
+    } else if (!this.cast || this.cast.move) {
       this.pos.y = heightAt(this.pos.x, this.pos.z);
       this.anim.loop(this.cls.id === 'knight' ? 'Idle' : 'Idle');
     }
@@ -153,7 +170,7 @@ export class Player extends Unit {
       const name = anims[this.combo % 3]; const combo = this.combo % 3; this.combo++;
       g.coop?.sendAct({ s: 'basic', c: combo, tid: t.id });
       const dur = this.anim.once(name, { timeScale: 1.25 * spd, lockFor: this.cls.atkSpeed * 0.75 });
-      this.cast = { t: 0, dur: dur * 0.5, face: t.pos, events: [{ at: dur * 0.28, fn: () => {
+      this.cast = { t: 0, dur: dur * 0.5, face: t.pos, move: true, events: [{ at: dur * 0.28, fn: () => {
         sfx.swing();
         g.fx.slash(this.pos, this.yaw, combo === 2 ? 0xffe2a0 : 0xfff6e0, { radius: 2.1, tilt: combo === 0 ? 0.5 : combo === 1 ? 0 : 1.2, flip: combo === 1 });
         if (t.alive && dist2d(this.pos, t.pos) < this.cls.range + t.radius + 0.9) {
@@ -165,7 +182,7 @@ export class Player extends Unit {
     } else {
       const dur = this.anim.once('Spellcast_Shoot', { timeScale: 1.5 * spd, lockFor: this.cls.atkSpeed * 0.7 });
       g.coop?.sendAct({ s: 'basic', tid: t.id });
-      this.cast = { t: 0, dur: dur * 0.45, face: t.pos, events: [{ at: dur * 0.22, fn: () => {
+      this.cast = { t: 0, dur: dur * 0.45, face: t.pos, move: true, events: [{ at: dur * 0.22, fn: () => {
         sfx.magic();
         const from = new THREE.Vector3(); this.ch.slotR.getWorldPosition(from); from.y += 0.6;
         g.projectile({ from, target: t, speed: 22, color: 0x6fc8ff, size: 0.6, owner: this, mult: 1.0, kind: 'bolt' });

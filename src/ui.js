@@ -37,6 +37,7 @@ export class UI {
     $('#pot-hp').onpointerdown = (e) => { e.preventDefault(); game.player.usePotion('hp'); };
     $('#pot-mp').onpointerdown = (e) => { e.preventDefault(); game.player.usePotion('mp'); };
     $('#btn-inv').onclick = () => this.openInventory();
+    $('#sellall').onclick = () => this.sellAll();
     $('#btn-menu').onclick = () => this.openMenu();
     $('#revive').onclick = () => game.revive();
     $('#target').onclick = () => { if (game.player.target) { game.player.autoAttack = true; } };
@@ -300,6 +301,16 @@ export class UI {
       ${compact ? '' : `<div class="iinfo"><b style="color:${r.color}">${it.name}${it.plus ? ' +' + it.plus : ''}</b><small>${r.name} · Sv.${it.lv}</small><span>${stat}</span></div>`}</div>`;
   }
 
+  // An item is an upgrade if this class can use it and it beats what's equipped in that slot.
+  canUse(it) { return it.slot !== 'weapon' || it.wtype === (this.g.player.cls.id === 'mage' ? 'staff' : 'sword'); }
+  upgradeBy(it) {
+    if (!this.canUse(it)) return 0;
+    const cur = this.g.save.equip[it.slot];
+    const a = itemStat(it), k = a.atk ? 'atk' : a.def ? 'def' : 'hp';
+    if (!cur) return a[k] || 1;
+    return Math.max(0, a[k] - (itemStat(cur)[k] || 0));
+  }
+
   refreshInventory() {
     if (!this.g) return;
     const s = this.g.save, p = this.g.player;
@@ -314,13 +325,38 @@ export class UI {
       <div><span>Saldırı</span><b>${p.atk}</b></div><div><span>Savunma</span><b>${p.def}</b></div><div><span>Altın</span><b>${s.gold.toLocaleString('tr-TR')}</b></div>
       <div><span>Öldürülen</span><b>${s.stats.kills || 0}</b></div><div><span>Unique</span><b>${s.stats.uniques || 0}</b></div>`;
     const bag = $('#bag'); bag.innerHTML = '';
+    let ups = 0;
     for (let i = 0; i < 24; i++) {
       const it = s.bag[i];
-      const el = h('div', 'bslot', it ? this.itemCard(it, { compact: true }) : '');
+      const up = it ? this.upgradeBy(it) : 0;
+      if (up) ups++;
+      const el = h('div', 'bslot' + (up ? ' up' : '') + (it && !this.canUse(it) ? ' nouse' : ''), it ? this.itemCard(it, { compact: true }) + (up ? '<span class="upb">▲</span>' : '') : '');
       if (it) el.onclick = () => this.itemDetail(it, false);
       bag.appendChild(el);
     }
     $('#bagcount').textContent = `${s.bag.length}/24`;
+    $('#btn-inv').classList.toggle('has-up', ups > 0);
+    $('#sellall').disabled = !s.bag.some((it) => !this.upgradeBy(it));
+  }
+
+  sellAll() {
+    const s = this.g.save, p = this.g.player, d = $('#idetail');
+    const sell = s.bag.filter((it) => !this.upgradeBy(it));
+    const keep = s.bag.length - sell.length;
+    if (!sell.length) { this.toast('Satılacak eşya yok', '#ffcf6a'); return; }
+    const gold = sell.reduce((a, it) => a + sellPrice(it), 0);
+    const rare = sell.filter((it) => it.rarity >= 2 || it.plus >= 3).length;
+    d.innerHTML = `<div class="sellq"><b>${sell.length} eşya satılsın mı?</b><span>Kazanç: <em>${gold.toLocaleString('tr-TR')} 🪙</em></span>
+      ${keep ? `<small>▲ Daha iyi olan ${keep} eşya korunacak.</small>` : ''}${rare ? `<small class="warn">Aralarında ${rare} destansı/güçlendirilmiş eşya var.</small>` : ''}</div>
+      <div class="row"><button class="btn" id="d-sellall">💰 Sat</button><button class="btn ghost" id="d-x">Vazgeç</button></div>`;
+    d.classList.remove('hidden');
+    $('#d-x').onclick = () => d.classList.add('hidden');
+    $('#d-sellall').onclick = () => {
+      s.bag = s.bag.filter((it) => !sell.includes(it)); s.gold += gold;
+      sfx.coin(); setTimeout(() => sfx.coin(), 120);
+      d.classList.add('hidden'); this.toast(`+${gold.toLocaleString('tr-TR')} altın`, '#ffd36b');
+      this.refreshInventory(); saveGame(s, p);
+    };
   }
 
   itemDetail(it, equipped) {
@@ -332,6 +368,7 @@ export class UI {
       const diff = a[k] - b[k]; cmp = `<div class="cmp ${diff >= 0 ? 'up' : 'down'}">${diff >= 0 ? '▲' : '▼'} ${Math.abs(diff)} (kuşanılana göre)</div>`;
     }
     const wrong = it.slot === 'weapon' && it.wtype !== (p.cls.id === 'mage' ? 'staff' : 'sword');
+    if (!equipped && !cur && this.canUse(it)) cmp = '<div class="cmp up">▲ Bu yuva boş — hemen kuşan</div>';
     d.innerHTML = `${this.itemCard(it)}${cmp}${wrong ? '<div class="cmp down">Bu silahı sınıfın kullanamaz</div>' : ''}
       <div class="row">${equipped ? '' : `<button class="btn" id="d-eq" ${wrong ? 'disabled' : ''}>Kuşan</button>`}
       ${equipped ? '' : `<button class="btn ghost" id="d-sell">Sat (${sellPrice(it)} 🪙)</button>`}<button class="btn ghost" id="d-x">Kapat</button></div>`;

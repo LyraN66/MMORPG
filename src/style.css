@@ -187,7 +187,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 .r1 .iic { border-color: #4fa8ff; box-shadow: 0 0 8px #4fa8ff66; } .r2 .iic { border-color: #c66bff; box-shadow: 0 0 10px #c66bff77; } .r3 .iic { border-color: #ffae2b; box-shadow: 0 0 12px #ffae2b99; }
 .bslot .iic { width: 100%; height: 100%; border-radius: 8px; }
 .iinfo { display: flex; flex-direction: column; font-size: 12px; } .iinfo b { font-size: 13px; } .iinfo small { opacity: .6; }
-#idetail { position: sticky; bottom: 0; margin-top: 10px; background: #0b0a0e; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+#idetail { position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 3; background: #0b0a0e; border: 1px solid var(--gold); border-radius: 10px; padding: 10px; box-shadow: 0 -10px 40px rgba(0,0,0,.8); }
 #idetail .row, .menulist { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .menulist { flex-direction: column; }
 .cmp { font-size: 12px; margin-top: 6px; } .cmp.up { color: #7dff9a; } .cmp.down { color: #ff7a6a; }
@@ -261,3 +261,46 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 .guidelbl { position: absolute; left: 0; top: 0; font: 700 12px var(--title); color: #ffe08a; text-shadow: 0 1px 3px #000, 0 0 6px #000; white-space: nowrap; pointer-events: none; }
 
 #netwarn { position: absolute; top: calc(60px + var(--st)); left: 50%; transform: translateX(-50%); background: rgba(120,20,10,.85); color: #ffe0d0; font-weight: 700; font-size: 13px; padding: 6px 14px; border-radius: 10px; border: 1px solid #ff6a4a; animation: pulse 1.4s infinite; }
+
+/* ---------- bag upgrades / sell all ---------- */
+.bagh { display: flex; align-items: center; gap: 8px; }
+.btn.mini { margin-left: auto; padding: 4px 10px; font-size: 12px; }
+.bslot { position: relative; }
+.bslot.up { border-color: #5dff7a; box-shadow: 0 0 8px rgba(93,255,122,.45); }
+.bslot .upb { position: absolute; left: 2px; top: 0; font-size: 12px; font-weight: 900; color: #5dff7a; text-shadow: 0 0 4px #000, 0 1px 2px #000; }
+.bslot.nouse { opacity: .55; }
+.rbtn { position: relative; }
+.rbtn.has-up::after { content: '▲'; position: absolute; right: -2px; top: -4px; font-size: 11px; font-weight: 900; color: #0b1a0b; background: #5dff7a; border-radius: 50%; width: 16px; height: 16px; line-height: 16px; text-align: center; box-shadow: 0 0 8px #5dff7a; }
+.sellq { display: flex; flex-direction: column; gap: 3px; font-size: 13px; } .sellq b { font: 700 15px var(--title); color: var(--gold2); } .sellq em { font-style: normal; color: #ffd36b; font-weight: 700; }
+.sellq small { font-size: 11.5px; opacity: .85; } .sellq small.warn { color: #ffb38a; }
+
+/* ---------- short landscape screens (e.g. 20:9 phones) ---------- */
+@media (max-height: 440px) {
+  #mmwrap { width: auto; flex-direction: row; align-items: flex-start; gap: 6px; }
+  #mmwrap .mmbtns { flex-direction: column; order: -1; }
+  #mmwrap #zonename { position: absolute; right: 0; top: 122px; width: 118px; }
+  #minimap { width: 104px; height: 104px; }
+  #mmwrap #zonename { top: 108px; width: 104px; }
+  .rbtn { width: 36px; height: 36px; font-size: 16px; }
+  #atk { width: 76px; height: 76px; font-size: 32px; right: calc(16px + var(--sr)); bottom: calc(18px + var(--sb)); }
+  #skills { right: calc(16px + var(--sr)); bottom: calc(18px + var(--sb)); width: 76px; height: 76px; }
+  .skill { width: 52px; height: 52px; font-size: 21px; }
+  .skill.s0 { right: 86px; top: 22px; } .skill.s1 { right: 76px; top: -44px; } .skill.s2 { right: 18px; top: -70px; }
+  #pots { right: calc(160px + var(--sr)); bottom: calc(14px + var(--sb)); }
+  .pot { width: 44px; height: 44px; font-size: 19px; }
+  #toasts { top: calc(150px + var(--st)); right: calc(150px + var(--sr)); }
+  #qtrack { top: calc(84px + var(--st)); }
+  .modal { padding: calc(6px + var(--st)) 8px calc(6px + var(--sb)); }
+  .panel { padding: 10px 12px; }
+  .ph { margin-bottom: 4px; } .ph h3 { font-size: 16px; }
+  .close { width: 30px; height: 30px; font-size: 14px; }
+  .npcsay { margin-bottom: 6px; font-size: 12px; }
+  #inv .panel { height: 100%; }
+  .invgrid { gap: 10px; }
+  #equip { gap: 4px; } .eqslot { padding: 3px 6px; } .eqslot .iic { width: 32px; height: 32px; font-size: 17px; }
+  .iinfo { font-size: 11px; } .iinfo b { font-size: 12px; }
+  #stats { grid-template-columns: repeat(4, 1fr); gap: 2px 8px; margin-top: 6px; font-size: 11px; }
+  #stats div { flex-direction: column; padding: 2px 0; }
+  #bag, #smithlist { grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+  .bslot .iic { font-size: 16px; }
+}
