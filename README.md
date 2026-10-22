@@ -16,6 +16,13 @@ Telefonda ve tarayıcıda oynanan 3D aksiyon RPG prototipi. Lanetli bir vadide i
 - **Mobil:** Sol yarıda joystick · düşmana dokun = hedefle ve saldır · yere dokun = yürü · iki parmak = yakınlaştır.
 - **PC:** WASD veya tıkla-yürü · Boşluk = saldır · 1/2/3 = yetenek · Q/E = can/mana iksiri · F = etkileşim · M = harita · I = çanta · tekerlek = zoom.
 
+## Çevrimiçi dünya
+- Ana menü → **🌍 Çevrimiçi Oyna**: herkes aynı vadiye girer. Dünyayı (moblar, boss'lar, ganimet, yeniden doğma) sunucu yönetir (`server/sim.js`), karakterler oyuncunun cihazında kayıtlıdır.
+- Ortak ganimet (ilk alan kapar), yakındaki herkese XP ve görev ilerlemesi.
+- Bağlantı koparsa oyun otomatik yeniden bağlanır.
+- Sunucu: `server/` (Node.js + ws), Render'da `Root Directory: server`. Ücretsiz katmanda kimse yokken uyur, ilk giriş ~1 dk sürebilir.
+- Dünya düzeni ve oyun verileri `server/shared/` altında; istemci de aynı dosyaları kullanır.
+
 ## Performans
 - Uzaktaki ve ekran dışındaki düşmanlar "uyur" (yapay zekâ, animasyon ve çizim yapılmaz).
 - Dünya bölgelere ayrılmıştır; sisin arkasında kalan obje ve çimler çizilmez.

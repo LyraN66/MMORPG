@@ -28,8 +28,8 @@
   <div id="title" class="hidden screen">
     <div class="logo big">Kemik Vadisi<small>Lanetli topraklarda bir efsane</small></div>
     <div class="tbtns">
-      <button class="btn big" id="t-continue">Devam Et</button>
-      <button class="btn big ghost" id="t-coop">👥 Arkadaşla Oyna</button>
+      <button class="btn big" id="t-coop">🌍 Çevrimiçi Oyna</button>
+      <button class="btn big ghost" id="t-continue">Devam Et</button>
       <button class="btn big ghost" id="t-new">Oyuna Başla</button>
     </div>
     <div class="credit">Grafikler: KayKit (CC0) · Prototip v0.1</div>
@@ -71,6 +71,7 @@
     <div id="levelup"></div>
     <div id="fps"></div>
     <div id="room" class="hidden"></div>
+    <div id="netwarn" class="hidden"></div>
   </div>
 
   <!-- Controls -->
@@ -113,13 +114,12 @@
     <div class="smithgrid"><div id="smithlist"></div><div id="smithpanel"></div></div>
   </div></div>
 
-  <!-- Co-op lobby -->
+  <!-- Online connect -->
   <div id="lobby" class="modal hidden"><div class="panel small">
-    <div class="ph"><h3>👥 Arkadaşla Oyna</h3><button class="close" id="lobby-x">✕</button></div>
-    <p class="lhint">Biri oda kurar, 4 haneli kodu arkadaşına söyler; arkadaşın kodu yazıp katılır. Herkes kendi karakteriyle girer, moblar ve ganimet ortaktır (yere düşeni ilk alan kapar).</p>
-    <div class="lrow"><button class="btn" id="l-create">Oda Kur</button></div>
-    <div class="lrow"><input id="l-code" inputmode="numeric" maxlength="4" placeholder="Kod" autocomplete="off" /><button class="btn ghost" id="l-join">Katıl</button></div>
+    <div class="ph"><h3>🌍 Çevrimiçi Dünya</h3><button class="close" id="lobby-x">✕</button></div>
+    <p class="lhint">Herkes aynı Kemik Vadisi'ne girer. Kendi karakterinle oynarsın; moblar, boss'lar ve yere düşen ganimet ortaktır (ilk alan kapar).</p>
     <div class="lstatus" id="l-status"></div>
+    <div class="lrow"><button class="btn hidden" id="l-retry">Tekrar Dene</button></div>
     <details><summary>Sunucu ayarı</summary><input id="l-server" autocomplete="off" spellcheck="false" /></details>
   </div></div>
 

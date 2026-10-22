@@ -259,3 +259,5 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 .lcode { font: 900 44px var(--title); letter-spacing: .25em; text-align: center; color: var(--gold2); margin: 6px 0; }
 
 .guidelbl { position: absolute; left: 0; top: 0; font: 700 12px var(--title); color: #ffe08a; text-shadow: 0 1px 3px #000, 0 0 6px #000; white-space: nowrap; pointer-events: none; }
+
+#netwarn { position: absolute; top: calc(60px + var(--st)); left: 50%; transform: translateX(-50%); background: rgba(120,20,10,.85); color: #ffe0d0; font-weight: 700; font-size: 13px; padding: 6px 14px; border-radius: 10px; border: 1px solid #ff6a4a; animation: pulse 1.4s infinite; }

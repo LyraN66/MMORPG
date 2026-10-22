@@ -4,6 +4,7 @@ import { CLASSES, UNIQUES } from './data.js';
 import { heightAt } from './world.js';
 import { sfx } from './audio.js';
 import { dist2d } from './units.js';
+import { Net } from './net.js';
 
 const TYPES = ['minion', 'rogue', 'warrior', 'mage'];
 const lerpAngle = (a, b, t) => { let d = b - a; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return a + d * t; };
@@ -71,13 +72,39 @@ export class RemotePlayer {
 
 export class Coop {
   constructor(game, net) {
-    this.g = game; this.net = net; this.id = net.id; this.code = net.code;
-    this.remotes = new Map();
+    this.g = game; this.remotes = new Map();
     this.sendT = 0; this.snapT = 0; this.utT = 0; this.lid = 1;
-    game.player.netId = net.id;
+    this.attach(net);
+  }
+  attach(net) {
+    this.net = net; this.id = net.id; this.code = net.code;
+    this.g.player.netId = net.id;
     net.onMessage = (m) => this.onMessage(m);
-    net.onClose = () => this.lost('Sunucu bağlantısı koptu.');
+    net.onClose = () => this.reconnect();
     for (const p of net.peers) this.addRemote(p.id, p.info, true);
+  }
+  // Connection dropped (phone switched apps, server restarted…): rejoin the world automatically.
+  async reconnect() {
+    if (this.closed || this.reconnecting) return;
+    this.reconnecting = true;
+    const g = this.g, url = this.net.url;
+    g.ui.netBanner('Bağlantı koptu, yeniden bağlanılıyor…');
+    for (const r of [...this.remotes.keys()]) { this.remotes.get(r).dispose(); this.remotes.delete(r); }
+    for (const e of g.enemies) if (e.remote) e.remove = true;
+    for (let i = g.loot.length - 1; i >= 0; i--) if (g.loot[i].shared) g.removeLoot(i);
+    for (let i = 0; i < 8 && !this.closed; i++) {
+      await new Promise((r) => setTimeout(r, Math.min(8000, 1500 * (i + 1))));
+      const net = new Net(url);
+      try {
+        await net.connect(60000);
+        await net.enter({ t: 'hello', info: { name: g.save.name, cls: g.save.cls, lv: g.save.level } });
+        this.attach(net); this.reconnecting = false;
+        g.ui.netBanner(null); g.ui.toast('🌍 Yeniden bağlandın', '#7dff9a'); g.ui.roomBadge();
+        return;
+      } catch { net.close(); }
+    }
+    this.reconnecting = false;
+    this.lost('Sunucuya ulaşılamıyor. İnternet bağlantını kontrol et.');
   }
   get isHost() { return this.net.isHost; }
   get hostId() { return this.net.host; }
@@ -90,19 +117,20 @@ export class Coop {
     if (this.remotes.has(id)) return this.remotes.get(id);
     const r = new RemotePlayer(this.g, id, info);
     this.remotes.set(id, r);
-    if (!quiet) { this.g.ui.toast(`👥 ${r.name} odaya katıldı`, '#7dff9a'); sfx.pickup(); }
+    if (!quiet) { this.g.ui.toast(`🌍 ${r.name} vadiye girdi`, '#7dff9a'); sfx.pickup(); }
     this.g.ui.roomBadge();
     return r;
   }
   removeRemote(id) {
     const r = this.remotes.get(id); if (!r) return;
-    this.g.ui.toast(`👥 ${r.name} ayrıldı`, '#ffb38a');
+    this.g.ui.toast(`🌍 ${r.name} vadiden ayrıldı`, '#ffb38a');
     r.dispose(); this.remotes.delete(id);
     for (const e of this.g.enemies) if (e.tgt === r) e.tgt = null;
     this.g.ui.roomBadge();
   }
   lost(reason) {
     if (this.closed) return; this.closed = true;
+    this.g.ui.netBanner(null);
     this.g.ui.netLost(reason);
   }
 

@@ -67,7 +67,12 @@ export class UI {
     if (!el) return;
     if (!c) { el.classList.add('hidden'); return; }
     el.classList.remove('hidden');
-    el.innerHTML = `👥 Oda <b>${c.code}</b> · ${c.count}/4${c.isHost ? ' · kurucu' : ''}`;
+    el.innerHTML = `🌍 Çevrimiçi · <b>${c.count}</b> oyuncu`;
+  }
+  netBanner(text) {
+    const el = $('#netwarn');
+    if (!text) { el.classList.add('hidden'); return; }
+    el.textContent = text; el.classList.remove('hidden');
   }
   netLost(reason) {
     $('#netlost p').textContent = reason;

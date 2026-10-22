@@ -1,13 +1,15 @@
-// Kemik Vadisi co-op relay server.
-// Rooms are identified by a 4-digit code. The player who creates a room is the host: their game
-// simulates the world (enemies, bosses, loot); the server only relays messages between room members.
+// Kemik Vadisi world server.
+// One persistent shared world: the server simulates enemies, bosses and loot (sim.js); players
+// connect, say hello with their character, and play. Characters are saved on each player's device.
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
+import { Sim } from './sim.js';
 
 const PORT = process.env.PORT || 8080;
 const VERSION = (process.env.RENDER_GIT_COMMIT || 'dev').slice(0, 7);
-const MAX_PLAYERS = 4;
-const rooms = new Map(); // code -> { code, host, members: Map<id, ws>, created }
+const MAX_PLAYERS = 40;
+const SERVER_ID = 0;
+const clients = new Map(); // id -> ws (only players who said hello)
 let nextId = 1;
 
 const server = http.createServer((req, res) => {
@@ -15,35 +17,30 @@ const server = http.createServer((req, res) => {
   if (req.url === '/health') { res.writeHead(200, cors); res.end('{"ok":true}'); return; }
   if (req.url === '/version' || req.url.startsWith('/v/')) { res.writeHead(200, cors); res.end(JSON.stringify({ version: VERSION })); return; }
   if (req.url === '/stats') {
-    let players = 0; for (const r of rooms.values()) players += r.members.size;
-    res.writeHead(200, cors); res.end(JSON.stringify({ rooms: rooms.size, players, version: VERSION })); return;
+    res.writeHead(200, cors);
+    res.end(JSON.stringify({ players: clients.size, names: [...sim.players.values()].map((p) => p.name), enemies: sim.enemies.size, version: VERSION }));
+    return;
   }
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('Kemik Vadisi sunucusu çalışıyor. Sürüm ' + VERSION);
+  res.end('Kemik Vadisi sunucusu çalışıyor. Sürüm ' + VERSION + ' · Çevrimiçi: ' + clients.size);
 });
 
-const wss = new WebSocketServer({ server, maxPayload: 256 * 1024 });
+const raw = (ws, s) => { if (ws.readyState === 1) ws.send(s); };
+const sendTo = (id, msg) => { const ws = clients.get(id); if (ws) raw(ws, JSON.stringify({ ...msg, f: SERVER_ID })); };
+const broadcast = (msg, except) => {
+  const s = JSON.stringify({ ...msg, f: msg.f ?? SERVER_ID });
+  for (const [id, ws] of clients) if (id !== except) raw(ws, s);
+};
+const sim = new Sim({ send: sendTo, broadcast: (m) => broadcast(m) });
 
-function newCode() {
-  for (let i = 0; i < 1000; i++) {
-    const c = String(Math.floor(1000 + Math.random() * 9000));
-    if (!rooms.has(c)) return c;
-  }
-  return null;
-}
-const send = (ws, msg) => { if (ws.readyState === 1) ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg)); };
+const wss = new WebSocketServer({ server, maxPayload: 64 * 1024 });
 
 function leave(ws) {
-  const room = ws.room; if (!room) return;
-  room.members.delete(ws.id);
-  ws.room = null;
-  if (room.host === ws.id) {
-    for (const m of room.members.values()) { send(m, { t: 'closed', reason: 'host' }); m.room = null; }
-    rooms.delete(room.code);
-  } else {
-    for (const m of room.members.values()) send(m, { t: 'peerLeft', id: ws.id });
-    if (!room.members.size) rooms.delete(room.code);
-  }
+  if (!ws.joined) return;
+  ws.joined = false;
+  clients.delete(ws.id);
+  sim.removePlayer(ws.id);
+  broadcast({ t: 'peerLeft', id: ws.id });
 }
 
 wss.on('connection', (ws) => {
@@ -53,40 +50,34 @@ wss.on('connection', (ws) => {
   ws.on('message', (buf) => {
     let m; try { m = JSON.parse(buf); } catch { return; }
     if (!m || typeof m.t !== 'string') return;
-    if (m.t === 'create') {
-      leave(ws);
-      const code = newCode(); if (!code) { send(ws, { t: 'error', msg: 'Sunucu dolu' }); return; }
-      const room = { code, host: ws.id, members: new Map([[ws.id, ws]]), created: Date.now() };
-      rooms.set(code, room); ws.room = room; ws.info = m.info || {};
-      send(ws, { t: 'joined', id: ws.id, code, host: ws.id, peers: [] });
+    if (m.t === 'ping') { raw(ws, JSON.stringify({ t: 'pong', ts: m.ts })); return; }
+    if (m.t === 'hello') {
+      if (ws.joined) return;
+      if (clients.size >= MAX_PLAYERS) { raw(ws, JSON.stringify({ t: 'error', msg: 'Dünya dolu, biraz sonra tekrar dene' })); return; }
+      const info = { name: String(m.info?.name || 'Oyuncu').slice(0, 14), cls: m.info?.cls === 'mage' ? 'mage' : 'knight', lv: +m.info?.lv || 1 };
+      ws.info = info; ws.joined = true;
+      const peers = [...clients.entries()].map(([id, c]) => ({ id, info: c.info }));
+      clients.set(ws.id, ws);
+      sim.addPlayer(ws.id, info);
+      raw(ws, JSON.stringify({ t: 'joined', id: ws.id, host: SERVER_ID, code: 'world', peers, f: SERVER_ID }));
+      broadcast({ t: 'peerJoined', id: ws.id, info }, ws.id);
+      sim.welcome(ws.id);
       return;
     }
-    if (m.t === 'join') {
-      const room = rooms.get(String(m.code || ''));
-      if (!room) { send(ws, { t: 'error', msg: 'Oda bulunamadı' }); return; }
-      if (room.members.size >= MAX_PLAYERS) { send(ws, { t: 'error', msg: 'Oda dolu (en fazla 4 kişi)' }); return; }
-      leave(ws);
-      ws.room = room; ws.info = m.info || {};
-      const peers = [...room.members.values()].map((p) => ({ id: p.id, info: p.info }));
-      room.members.set(ws.id, ws);
-      send(ws, { t: 'joined', id: ws.id, code: room.code, host: room.host, peers });
-      for (const p of room.members.values()) if (p !== ws) send(p, { t: 'peerJoined', id: ws.id, info: ws.info });
-      return;
-    }
-    if (m.t === 'leave') { leave(ws); return; }
-    if (m.t === 'ping') { send(ws, { t: 'pong', ts: m.ts }); return; }
-    // Relay: to a single member when `to` is set, otherwise to everyone else in the room.
-    const room = ws.room; if (!room) return;
+    if (!ws.joined) return;
     m.f = ws.id;
-    const out = JSON.stringify(m);
-    if (m.to != null) { const dst = room.members.get(m.to); if (dst) send(dst, out); return; }
-    for (const p of room.members.values()) if (p !== ws) send(p, out);
+    switch (m.t) {
+      case 'ps': sim.onState(ws.id, m); broadcast(m, ws.id); break; // own state → everyone
+      case 'act': broadcast(m, ws.id); break; // attack/skill visuals → everyone
+      case 'dmg': sim.onDamage(ws.id, m); break;
+      case 'pick': sim.onPick(ws.id, m.lid); break;
+      default: break;
+    }
   });
   ws.on('close', () => leave(ws));
   ws.on('error', () => leave(ws));
 });
 
-// Drop dead connections so rooms don't linger.
 setInterval(() => {
   for (const ws of wss.clients) {
     if (!ws.alive) { ws.terminate(); continue; }
@@ -94,4 +85,11 @@ setInterval(() => {
   }
 }, 15000);
 
-server.listen(PORT, () => console.log(`Kemik Vadisi sunucusu :${PORT} (sürüm ${VERSION})`));
+// World simulation at 20 Hz.
+let last = Date.now();
+setInterval(() => {
+  const now = Date.now(); const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  try { sim.tick(dt); } catch (e) { console.error('sim error', e); }
+}, 50);
+
+server.listen(PORT, () => console.log(`Kemik Vadisi dünya sunucusu :${PORT} (sürüm ${VERSION})`));

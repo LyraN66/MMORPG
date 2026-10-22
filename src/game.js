@@ -108,19 +108,18 @@ export class Game {
     const m = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 40), new THREE.MeshBasicMaterial({ color: 0xff4a4a, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide }));
     m.rotation.x = -Math.PI / 2; m.visible = false; this.scene.add(m); return m;
   }
-  // Golden chevron around the player that points at the nearest quest objective.
+  // Glowing dots on the ground leading toward the nearest quest objective.
   makeGuide() {
-    const sh = new THREE.Shape();
-    sh.moveTo(0, 0.75); sh.lineTo(0.55, -0.15); sh.lineTo(0.2, -0.15); sh.lineTo(0.2, -0.6); sh.lineTo(-0.2, -0.6); sh.lineTo(-0.2, -0.15); sh.lineTo(-0.55, -0.15); sh.closePath();
-    const geo = new THREE.ShapeGeometry(sh); geo.rotateX(-Math.PI / 2); geo.rotateY(Math.PI);
-    const mat = new THREE.MeshBasicMaterial({ color: 0xffc21a, transparent: true, opacity: 0.95, depthWrite: false, depthTest: false, side: THREE.DoubleSide, fog: false, toneMapped: false });
-    const m = new THREE.Mesh(geo, mat); m.renderOrder = 11; m.scale.setScalar(2.1);
-    // dark outline underneath so it reads on any ground colour
-    const ol = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x1a0d00, transparent: true, opacity: 0.6, depthWrite: false, depthTest: false, side: THREE.DoubleSide, fog: false }));
-    ol.scale.setScalar(1.25); ol.position.set(0, -0.01, -0.05); ol.renderOrder = 10; m.add(ol); m.visible = false; this.scene.add(m);
+    const N = 12;
+    const geo = new THREE.CircleGeometry(0.17, 14); geo.rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.95, depthWrite: false, fog: false, toneMapped: false });
+    const dots = new THREE.InstancedMesh(geo, mat, N); dots.frustumCulled = false; dots.renderOrder = 6; dots.visible = false;
+    const halo = new THREE.InstancedMesh(new THREE.CircleGeometry(0.34, 14).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x1a0d00, transparent: true, opacity: 0.35, depthWrite: false, fog: false }), N);
+    halo.frustumCulled = false; halo.renderOrder = 5; halo.visible = false;
+    this.scene.add(halo); this.scene.add(dots);
     const lbl = document.createElement('div'); lbl.className = 'guidelbl'; lbl.style.display = 'none';
     document.getElementById('overlay').appendChild(lbl);
-    return { m, lbl, t: 0, pick: null, pickT: 0 };
+    return { dots, halo, N, lbl, t: 0, pick: null, pickT: 0, m4: new THREE.Matrix4(), q: new THREE.Quaternion(), v: new THREE.Vector3(), sc: new THREE.Vector3() };
   }
   updateGuide(dt) {
     const G = this.guide, p = this.player;
@@ -135,15 +134,26 @@ export class Game {
     }
     const t = G.pick;
     const dist = t ? Math.max(0, Math.hypot(t.x - p.pos.x, t.z - p.pos.z) - (t.r || 0)) : 0;
-    const show = t && !p.dead && dist > 3;
-    G.m.visible = !!show;
+    const show = !!t && !p.dead && dist > 3;
+    G.dots.visible = G.halo.visible = show;
     if (!show) { if (G.lbl.style.display !== 'none') G.lbl.style.display = 'none'; return; }
-    const a = Math.atan2(t.x - p.pos.x, t.z - p.pos.z);
-    const R = 3.2 + Math.sin(G.t * 4) * 0.25;
-    G.m.position.set(p.pos.x + Math.sin(a) * R, p.pos.y + 0.12, p.pos.z + Math.cos(a) * R);
-    G.m.rotation.y = a;
-    G.m.material.opacity = 0.8 + Math.sin(G.t * 4) * 0.15;
-    TMP.set(p.pos.x + Math.sin(a) * (R + 2.6), p.pos.y + 0.3, p.pos.z + Math.cos(a) * (R + 2.6)).project(this.camera);
+    const dx = t.x - p.pos.x, dz = t.z - p.pos.z, len = Math.hypot(dx, dz), ux = dx / len, uz = dz / len;
+    const SP = 1.45, start = 1.4, maxLen = Math.min(dist + (t.r ? 0 : 0), start + SP * (G.N - 1));
+    const flow = (G.t * 2.2) % SP;
+    let last = start;
+    for (let i = 0; i < G.N; i++) {
+      const s = start + flow + i * SP;
+      // dots fade in near the player and fade out at the end of the trail
+      const k = s > maxLen ? 0 : Math.min(1, (s - start) / 1.2, (maxLen - s) / 2.2 + 0.15);
+      const x = p.pos.x + ux * s, z = p.pos.z + uz * s;
+      G.v.set(x, heightAt(x, z) + 0.14, z); G.sc.setScalar(Math.max(0.001, k));
+      G.m4.compose(G.v, G.q, G.sc);
+      G.dots.setMatrixAt(i, G.m4); G.halo.setMatrixAt(i, G.m4);
+      if (k > 0) last = s;
+    }
+    G.dots.instanceMatrix.needsUpdate = true; G.halo.instanceMatrix.needsUpdate = true;
+    const lx = p.pos.x + ux * (last + 1), lz = p.pos.z + uz * (last + 1);
+    TMP.set(lx, heightAt(lx, lz) + 0.4, lz).project(this.camera);
     G.lbl.style.display = '';
     G.lbl.textContent = `${Math.round(dist)} m`;
     G.lbl.style.transform = `translate(${((TMP.x * 0.5 + 0.5) * innerWidth) | 0}px, ${((-TMP.y * 0.5 + 0.5) * innerHeight) | 0}px) translate(-50%, -50%)`;

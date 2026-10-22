@@ -113,11 +113,12 @@ function showTitle() {
   const save = loadSave();
   $('#title').classList.remove('hidden');
   $('#t-continue').classList.toggle('hidden', !save);
-  if (save) $('#t-continue').innerHTML = `Devam Et <small>${save.name} · ${CLASSES[save.cls].name} · Sv.${save.level}</small>`;
+  if (save) $('#t-continue').innerHTML = `Tek Başına Oyna <small>${save.name} · ${CLASSES[save.cls].name} · Sv.${save.level}</small>`;
+  if (save) $('#t-coop').innerHTML = `🌍 Çevrimiçi Oyna <small>Herkesle aynı vadide</small>`;
   $('#t-new').textContent = save ? 'Yeni Karakter' : 'Oyuna Başla';
   $('#t-continue').onclick = () => { initAudio(); startGame(save); };
   $('#t-coop').classList.toggle('hidden', !save);
-  $('#t-coop').onclick = () => { initAudio(); openLobby(save); };
+  $('#t-coop').onclick = () => { initAudio(); openOnline(save); };
   $('#t-new').onclick = () => { initAudio(); $('#title').classList.add('hidden'); showClassSelect(); };
 }
 function showClassSelect() {
@@ -149,41 +150,38 @@ function focusPreview() {
   }
 }
 
-// ---------- co-op lobby ----------
-function openLobby(save) {
-  const st = $('#l-status'), btns = ['#l-create', '#l-join'].map((q) => $(q));
-  st.textContent = ''; st.className = 'lstatus';
+// ---------- online world ----------
+function openOnline(save) {
+  const st = $('#l-status'), retry = $('#l-retry');
   $('#l-server').value = serverUrl();
   $('#lobby').classList.remove('hidden');
-  $('#lobby-x').onclick = () => $('#lobby').classList.add('hidden');
-  const info = () => ({ name: save.name, cls: save.cls, lv: save.level });
-  const go = async (msg) => {
+  let cancelled = false, net = null;
+  $('#lobby-x').onclick = () => { cancelled = true; net?.close(); $('#lobby').classList.add('hidden'); };
+  const go = async () => {
     const custom = $('#l-server').value.trim();
     setServerUrl(custom && custom !== DEFAULT_SERVER ? custom : '');
-    const net = new Net();
-    btns.forEach((b) => (b.disabled = true));
+    net = new Net();
+    retry.classList.add('hidden');
     st.className = 'lstatus'; st.textContent = 'Sunucuya bağlanılıyor…';
-    const slow = setTimeout(() => { st.textContent = 'Sunucu uyanıyor… (ücretsiz sunucu ilk açılışta 1 dakika kadar sürebilir)'; }, 4000);
+    const slow = setTimeout(() => { st.textContent = 'Sunucu uyanıyor… (ücretsiz sunucu bir süre boş kalınca uyur, 1 dakika kadar sürebilir)'; }, 4000);
     try {
       await net.connect();
-      clearTimeout(slow); st.textContent = msg.t === 'create' ? 'Oda kuruluyor…' : 'Odaya giriliyor…';
-      await net.enter(msg);
+      if (cancelled) return;
+      clearTimeout(slow); st.textContent = 'Vadiye giriliyor…';
+      await net.enter({ t: 'hello', info: { name: save.name, cls: save.cls, lv: save.level } });
+      if (cancelled) { net.close(); return; }
       $('#lobby').classList.add('hidden');
       startGame(save, net);
-      if (net.isHost) setTimeout(() => ui.announce(`👥 Oda kodu: ${net.code} — arkadaşına söyle`, 'skill'), 600);
-      else ui.announce('👥 Odaya katıldın!', 'skill');
+      const others = net.peers.length;
+      ui.announce(others ? `🌍 Vadide ${others} oyuncu daha var` : '🌍 Çevrimiçi dünyaya girdin', 'skill');
     } catch (e) {
       clearTimeout(slow); net.close();
-      st.className = 'lstatus err'; st.textContent = e.message;
+      if (cancelled) return;
+      st.className = 'lstatus err'; st.textContent = e.message; retry.classList.remove('hidden');
     }
-    btns.forEach((b) => (b.disabled = false));
   };
-  $('#l-create').onclick = () => go({ t: 'create', info: info() });
-  $('#l-join').onclick = () => {
-    const code = $('#l-code').value.replace(/\D/g, '');
-    if (code.length !== 4) { st.className = 'lstatus err'; st.textContent = '4 haneli oda kodunu yaz'; return; }
-    go({ t: 'join', code, info: info() });
-  };
+  retry.onclick = go;
+  go();
 }
 
 function startGame(save, net) {
