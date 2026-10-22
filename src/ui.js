@@ -27,7 +27,7 @@ export class UI {
     this.g = game; const p = game.player;
     $('#hud').classList.remove('hidden'); $('#controls').classList.remove('hidden');
     $('#pname').textContent = game.save.name;
-    $('#portrait').textContent = p.cls.id === 'knight' ? '⚔️' : '🔮';
+    $('#portrait').textContent = p.cls.icon;
     // skill buttons
     const wrap = $('#skills'); wrap.innerHTML = '';
     this.skillBtns = p.cls.skills.map((s, i) => {
@@ -319,7 +319,7 @@ export class UI {
   openModal(id) { this.closeModal(); $(id).classList.remove('hidden'); this.g.input.enabled = false; sfx.ui(); }
   closeModal() { document.querySelectorAll('.modal').forEach((m) => m.classList.add('hidden')); if (this.g) this.g.input.enabled = true; }
 
-  itemIcon(it) { return it.slot === 'weapon' ? (it.wtype === 'staff' ? '🪄' : '🗡️') : SLOT[it.slot]?.icon || '❔'; }
+  itemIcon(it) { return it.slot === 'weapon' ? ({ staff: '🪄', bow: '🏹', dagger: '🔪', axe: '🪓' }[it.wtype] || '🗡️') : SLOT[it.slot]?.icon || '❔'; }
   statText(it) { const st = itemStat(it); return Object.keys(STAT_NAMES).filter((k) => st[k]).map((k) => `${STAT_NAMES[k]} +${st[k]}`).join(' · '); }
   itemCard(it, { compact } = {}) {
     const r = RARITY[it.rarity];
@@ -329,9 +329,9 @@ export class UI {
 
   // An item is an upgrade if this class can use it and it beats what's equipped in that slot.
   canUse(it) {
-    const mage = this.g.player.cls.id === 'mage';
-    if (it.slot === 'weapon') return it.wtype === (mage ? 'staff' : 'sword');
-    return !(SLOT[it.slot]?.knightOnly && mage);
+    const c = this.g.player.cls;
+    if (it.slot === 'weapon') return it.wtype === c.weaponType;
+    return !(SLOT[it.slot]?.knightOnly && c.id !== 'knight');
   }
   upgradeBy(it) {
     if (!this.canUse(it)) return 0;
@@ -345,8 +345,8 @@ export class UI {
     const s = this.g.save, p = this.g.player;
     const eq = $('#equip'); eq.innerHTML = '';
     for (const sl of SLOTS) {
-      const it = s.equip[sl.id], blocked = sl.knightOnly && p.cls.id === 'mage';
-      const el = h('div', 'eqslot' + (blocked ? ' blocked' : ''), `<label>${sl.icon} ${sl.name}</label>${it ? this.itemCard(it) : `<div class="empty">${blocked ? 'Büyücü kullanamaz' : 'Boş'}</div>`}`);
+      const it = s.equip[sl.id], blocked = sl.knightOnly && p.cls.id !== 'knight';
+      const el = h('div', 'eqslot' + (blocked ? ' blocked' : ''), `<label>${sl.icon} ${sl.name}</label>${it ? this.itemCard(it) : `<div class="empty">${blocked ? `${p.cls.name} kullanamaz` : 'Boş'}</div>`}`);
       if (it) el.onclick = () => this.itemDetail(it, true);
       eq.appendChild(el);
     }

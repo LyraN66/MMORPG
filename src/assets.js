@@ -5,7 +5,7 @@ import { clone as skClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { rigClip } from '../server/shared/rigs.js';
 
 const BASE = import.meta.env.BASE_URL + 'assets/';
-const FILES = ['anims', 'knight', 'mage', 'rogue', 'skel_minion', 'skel_warrior', 'skel_rogue', 'skel_mage', 'props', 'weapons', 'npc_barbarian', 'npc_rogue', 'npc_ranger'];
+const FILES = ['anims', 'knight', 'mage', 'rogue', 'skel_minion', 'skel_warrior', 'skel_rogue', 'skel_mage', 'props', 'weapons', 'weapons2', 'npc_barbarian', 'npc_rogue', 'npc_ranger'];
 
 export const A = { gltf: {}, clips: {}, props: {}, weapons: {}, rig: {}, rawH: {} };
 
@@ -36,7 +36,7 @@ export async function loadAll(onProgress, monsters = {}) {
     c.tracks = c.tracks.filter((t) => !(t.name.startsWith('root.') && t.name.endsWith('.position')));
     A.clips[c.name] = c;
   }
-  for (const [store, key] of [[A.props, 'props'], [A.weapons, 'weapons']]) {
+  for (const [store, key] of [[A.props, 'props'], [A.weapons, 'weapons'], [A.weapons, 'weapons2']]) {
     for (const n of A.gltf[key].scene.children) store[n.name] = n;
   }
   // Materials: KayKit models are matte gradient-atlas art, so a diffuse (Lambert) material looks the same

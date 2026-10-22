@@ -18,7 +18,7 @@ export class RemotePlayer {
     this.game = game; this.netId = id; this.isPlayer = true; this.remote = true;
     this.name = info.name || 'Oyuncu'; this.cls = CLASSES[info.cls] || CLASSES.knight;
     this.level = info.lv || 1; this.def = info.def || 5;
-    this.ch = makeCharacter(this.cls.model, {});
+    this.ch = makeCharacter(this.cls.model, { weapon: this.cls.weapon, offhand: this.cls.offhand });
     this.anim = new Animator(this.ch); this.anim.loop('Idle');
     this.root = this.ch.root; game.scene.add(this.root);
     this.pos = new THREE.Vector3(0, -50, 60); this.netPos = this.pos.clone();
@@ -39,6 +39,7 @@ export class RemotePlayer {
     this.hp = m.hp; this.maxHp = m.mh; this.level = m.lv; this.def = m.df;
     if (m.nm) this.name = m.nm;
     this.title = m.tl || '';
+    if (!!m.sth !== this.sth) { this.sth = !!m.sth; for (const mm of this.ch.materials) { mm.transparent = this.sth; mm.opacity = this.sth ? 0.25 : 1; mm.depthWrite = !this.sth; } }
     if ((m.mt || null) !== this.mountId) { this.mountId = m.mt || null; this.game.setMount(this, this.mountId); }
     this.netAnim = { name: m.an, seq: m.sq, once: !!m.on, ts: m.ts || 1 };
     const dead = !!m.dd;
@@ -173,7 +174,7 @@ export class Coop {
     const p = this.g.player, a = p.anim.current;
     this.send({ t: 'ps', x: r2(p.pos.x), y: r2(p.pos.y), z: r2(p.pos.z), yw: r2(p.yaw), hp: Math.ceil(p.hp), mh: p.maxHp, lv: p.level,
       dd: p.dead ? 1 : 0, an: a?.name || 'Idle', sq: p.anim.seq, on: a?.once ? 1 : 0, ts: r2(a?.ts || 1), df: Math.round(p.effDef), nm: this.g.save.name,
-      mt: p.mountId || 0, tl: this.g.titleText() });
+      mt: p.mountId || 0, tl: this.g.titleText(), sth: p.stealthT > 0 ? 1 : 0 });
   }
 
   sendSnapshot() {
@@ -283,6 +284,8 @@ export class Coop {
     switch (m.s) {
       case 'basic':
         if (r.cls.id === 'knight') g.later(0.25, () => { s(() => sfx.swing()); fx.slash(r.pos, r.yaw, 0xfff6e0, { radius: 2.1, tilt: m.c === 0 ? 0.5 : m.c === 1 ? 0 : 1.2, flip: m.c === 1 }); });
+        else if (r.cls.id === 'assassin' || r.cls.id === 'barbarian') g.later(0.2, () => { s(() => sfx.swing()); fx.slash(r.pos, r.yaw, r.cls.id === 'barbarian' ? 0xffb07a : 0xd8a8ff, { radius: r.cls.id === 'barbarian' ? 2.5 : 1.7, tilt: 0.4, flip: m.c === 1 }); });
+        else if (r.cls.id === 'archer') g.later(0.18, () => { if (tgt) { s(() => sfx.swing()); g.arrow(null, tgt, 0, { fromUnit: r }); } });
         else g.later(0.2, () => { if (!tgt) return; s(() => sfx.magic()); g.projectile({ from: from(), target: tgt, speed: 22, color: 0x6fc8ff, size: 0.6, owner: null, mult: 0, kind: 'bolt', visual: true }); });
         break;
       case 'whirl':
@@ -326,6 +329,21 @@ export class Coop {
       case 'blackhole':
         if (m.tx != null) g.later(0.4, () => g.blackHole(new THREE.Vector3(m.tx, heightAt(m.tx, m.tz), m.tz), null));
         break;
+      case 'multishot': case 'poisonarrow': case 'snipe':
+        g.later(m.s === 'snipe' ? 1 : 0.3, () => { if (tgt) g.arrow(null, tgt, 0, { fromUnit: r, color: m.s === 'poisonarrow' ? 0x7dff4a : m.s === 'snipe' ? 0xffe066 : undefined, big: m.s === 'snipe' }); });
+        break;
+      case 'arrowrain': if (m.tx != null) g.arrowRain(new THREE.Vector3(m.tx, heightAt(m.tx, m.tz), m.tz), null); break;
+      case 'leapback': case 'vanish': case 'shadowstep':
+        fx.burst(r.pos.clone().setY(r.pos.y + 1), 30, m.s === 'leapback' ? 0xbfffd0 : 0x8a6abf, { speed: 3, up: 2, size: 0.5, life: 0.5 });
+        break;
+      case 'venomblade': case 'execute': case 'cleave': case 'earthsplit':
+        g.later(0.35, () => { s(() => sfx.heavySwing()); fx.slash(r.pos, r.yaw, m.s === 'venomblade' ? 0x7dff4a : m.s === 'execute' ? 0xff4a4a : 0xffa060, { radius: 3, width: 1, dur: 0.3 }); });
+        break;
+      case 'bladefan': case 'axestorm':
+        for (let k = 0; k < (m.s === 'axestorm' ? 6 : 4); k++) g.later(k * (m.s === 'axestorm' ? 0.4 : 0.2), () => { fx.groundRing(r.pos, { color: m.s === 'axestorm' ? 0xffb070 : 0xc8a0ff, r0: 1, r1: 3.8, dur: 0.3 }); fx.slash(r.pos, k * 1.3, 0xffffff, { radius: 3, dur: 0.2 }); });
+        break;
+      case 'leapslam': g.later(0.45, () => { fx.groundRing(r.pos, { color: 0xffa04a, r0: 0.5, r1: 4, dur: 0.45 }); fx.dust(r.pos, 20, 0x8a6a4a, 2); }); break;
+      case 'bloodlust': g.later(0.3, () => fx.pillar(r.pos, 0xff2a2a, { h: 6, r: 1.6, dur: 0.8 })); break;
       default: break;
     }
   }

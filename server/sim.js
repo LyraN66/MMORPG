@@ -75,7 +75,7 @@ class Enemy {
     if (this.state === 'spawn') { if (this.stateT <= 0) this.state = 'idle'; return; }
     if (this.stunT > 0) { this.anim.loop('Idle', 0.3); return; }
 
-    if (this.tgt && (this.tgt.dead || this.tgt.gone || this.sim.T.safeAt(this.tgt.pos.x, this.tgt.pos.z))) this.tgt = null;
+    if (this.tgt && (this.tgt.dead || this.tgt.gone || this.tgt.stealth || this.sim.T.safeAt(this.tgt.pos.x, this.tgt.pos.z))) this.tgt = null;
     const p = this.tgt || sim.nearestPlayer(this.pos);
     const dp = !p || p.dead ? 999 : dist2d(this.pos, p.pos);
     const dh = dist2d(this.pos, this.home);
@@ -272,13 +272,13 @@ export class Sim {
   }
   onState(id, m) {
     const p = this.players.get(id); if (!p) return;
-    p.pos.x = m.x; p.pos.y = m.y; p.pos.z = m.z; p.dead = !!m.dd; p.def = m.df || 5; p.level = m.lv || p.level; p.fresh = false;
+    p.pos.x = m.x; p.pos.y = m.y; p.pos.z = m.z; p.dead = !!m.dd; p.stealth = !!m.sth; p.def = m.df || 5; p.level = m.lv || p.level; p.fresh = false;
     if (m.nm) p.name = m.nm;
   }
   alivePlayers() { return [...this.players.values()].filter((p) => !p.dead && !p.fresh && !this.T.safeAt(p.pos.x, p.pos.z)); }
   nearestPlayer(pos) {
     let best = null, bd = Infinity;
-    for (const p of this.players.values()) { if (p.dead || p.fresh || this.T.safeAt(p.pos.x, p.pos.z)) continue; const d = dist2d(p.pos, pos); if (d < bd) { bd = d; best = p; } }
+    for (const p of this.players.values()) { if (p.dead || p.fresh || p.stealth || this.T.safeAt(p.pos.x, p.pos.z)) continue; const d = dist2d(p.pos, pos); if (d < bd) { bd = d; best = p; } }
     return best;
   }
   welcome(id) {

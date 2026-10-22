@@ -9,7 +9,7 @@ export function loadSave() {
 
 export function newSave(cls, name) {
   return migrateSave({
-    v: 1, map: 'vadi', cls, name: name || (cls === 'knight' ? 'Şövalye' : 'Büyücü'), level: 1, xp: 0, gold: 60,
+    v: 1, map: 'vadi', cls, name: name || 'Kahraman', level: 1, xp: 0, gold: 60,
     equip: { weapon: makeItem('weapon', 1, 0, cls), chest: makeItem('chest', 1, 0, cls) },
     bag: [], potions: { hp: 8, mp: 6 }, stats: { kills: 0, uniques: 0 }, created: Date.now(),
   });

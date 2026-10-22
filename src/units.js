@@ -47,8 +47,7 @@ export class Player extends Unit {
     this.save = save; this.isPlayer = true;
     this.cls = CLASSES[save.cls];
     this.radius = 0.55;
-    const hide = save.cls === 'knight' ? [] : [];
-    this.setupModel(this.cls.model, { hideMeshes: hide });
+    this.setupModel(this.cls.model, { weapon: this.cls.weapon, offhand: this.cls.offhand });
     this.target = null; this.moveTarget = null; this.autoAttack = false;
     this.atkCd = 0; this.combo = 0; this.cast = null; this.cds = {}; this.buffT = 0;
     this.lastDamageT = 99; this.potCd = 0; this.dead = false; this.stepT = 0;
@@ -70,7 +69,13 @@ export class Player extends Unit {
   }
   // Elixir still running? (real-time end stamps in the save)
   elixir(id) { return (this.save.buffs?.[id] || 0) > Date.now(); }
-  get effAtk() { return this.atk * (this.buffT > 0 ? 1.35 : 1) * (this.elixir('atk') ? 1.2 : 1); }
+  get effAtk() {
+    const rage = this.cls.rage ? 1 + 0.4 * (1 - this.hp / this.maxHp) : 1; // barbarian: hits harder when hurt
+    return this.atk * (this.buffT > 0 ? 1.35 : 1) * (this.elixir('atk') ? 1.2 : 1) * (this.bloodT > 0 ? 1.25 : 1) * rage;
+  }
+  setStealth(on) {
+    for (const m of this.ch.materials) { m.transparent = on; m.opacity = on ? 0.3 : 1; m.depthWrite = !on; }
+  }
   get effDef() { return this.def * (this.buffT > 0 ? 1.25 : 1) * (this.elixir('def') ? 1.2 : 1); }
   updateWeaponLook() {
     // +7 and above weapons glow (classic "plus" aura).
@@ -91,7 +96,8 @@ export class Player extends Unit {
 
   update(dt, input) {
     const g = this.game;
-    this.lastDamageT += dt; this.atkCd -= dt; this.potCd -= dt; this.buffT -= dt;
+    this.lastDamageT += dt; this.atkCd -= dt; this.potCd -= dt; this.buffT -= dt; this.bloodT = (this.bloodT || 0) - dt;
+    if (this.stealthT > 0) { this.stealthT -= dt; if (this.stealthT <= 0) this.setStealth(false); }
     for (const k in this.cds) this.cds[k] -= dt;
     if (this.dead) { this.anim.update(dt); this.syncModel(dt); return; }
     // regen
@@ -215,6 +221,24 @@ export class Player extends Unit {
           for (const e of g.enemiesNear(this.pos, this.cls.range + 0.8)) if (e !== t && Math.abs(angDiff(angleTo(this.pos, e.pos), this.yaw)) < 0.9) g.damage(this, e, 0.5, { knock: 0.2 });
         }
       } }] };
+    } else if (this.cls.id === 'assassin' || this.cls.id === 'barbarian') {
+      const bar = this.cls.id === 'barbarian';
+      const anims = bar ? ['2H_Melee_Attack_Chop', '1H_Melee_Attack_Slice_Horizontal'] : ['1H_Melee_Attack_Stab', '1H_Melee_Attack_Slice_Diagonal', '1H_Melee_Attack_Slice_Horizontal'];
+      const combo = this.combo % anims.length; this.combo++;
+      g.coop?.sendAct({ s: 'basic', c: combo, tid: t.id });
+      const dur = this.anim.once(anims[combo], { timeScale: (bar ? 1.15 : 1.6) * spd, lockFor: this.cls.atkSpeed * 0.75 });
+      this.cast = { t: 0, dur: dur * 0.5, face: t.pos, move: true, events: [{ at: dur * (bar ? 0.36 : 0.25), fn: () => {
+        sfx.swing();
+        g.fx.slash(this.pos, this.yaw, bar ? 0xffb07a : 0xd8a8ff, { radius: bar ? 2.5 : 1.7, width: bar ? 0.8 : 0.45, tilt: combo === 0 ? 0.6 : 0.1, flip: combo === 1 });
+        if (t.alive && dist2d(this.pos, t.pos) < this.cls.range + t.radius + 0.9) {
+          g.damage(this, t, bar ? 1.25 : 1.0, { knock: bar ? 0.5 : 0.1 });
+          if (bar) for (const e of g.enemiesNear(this.pos, this.cls.range + 1)) if (e !== t && Math.abs(angDiff(angleTo(this.pos, e.pos), this.yaw)) < 1.1) g.damage(this, e, 0.7, { knock: 0.3 });
+        }
+      } }] };
+    } else if (this.cls.id === 'archer') {
+      const dur = this.anim.once('Spellcast_Shoot', { timeScale: 1.7 * spd, lockFor: this.cls.atkSpeed * 0.7 });
+      g.coop?.sendAct({ s: 'basic', tid: t.id });
+      this.cast = { t: 0, dur: dur * 0.45, face: t.pos, move: true, events: [{ at: dur * 0.22, fn: () => { sfx.swing(); g.arrow(this, t, 1.0); } }] };
     } else {
       const dur = this.anim.once('Spellcast_Shoot', { timeScale: 1.5 * spd, lockFor: this.cls.atkSpeed * 0.7 });
       g.coop?.sendAct({ s: 'basic', tid: t.id });
@@ -234,9 +258,10 @@ export class Player extends Unit {
     if (this.safe && s.id !== 'warcry') { g.ui.toast('Güvenli bölgede savaşamazsın', '#9fe0ff'); sfx.deny(); return; }
     if (this.mp < s.mp) { g.ui.toast('Yetersiz mana', '#6ab8ff'); sfx.deny(); return; }
     // auto-acquire target for targeted skills
-    const needsTarget = ['charge', 'fireball', 'meteor', 'chain'].includes(s.id);
+    const needsTarget = ['charge', 'fireball', 'meteor', 'chain', 'poisonarrow', 'arrowrain', 'snipe', 'shadowstep', 'venomblade', 'execute', 'leapslam'].includes(s.id);
     if (needsTarget && (!this.target || !this.target.alive || dist2d(this.pos, this.target.pos) > 16)) this.target = g.pickTarget(this.pos, 14);
     if (needsTarget && !this.target) { g.ui.toast('Hedef yok', '#ffcf6a'); sfx.deny(); return; }
+    if (['venomblade', 'execute'].includes(s.id) && dist2d(this.pos, this.target.pos) > this.cls.range + this.target.radius + 2.5) { g.ui.toast('Hedef çok uzak', '#ffcf6a'); sfx.deny(); return; }
     this.mp -= s.mp; this.cds[s.id] = s.cd; this.moveTarget = null; this.path = null;
     const t = this.target;
     if (t) this.autoAttack = true;
@@ -340,6 +365,160 @@ export class Player extends Unit {
             g.later(k * 0.09, () => { g.fx.bolt(a, b, 0xbfe6ff, 0.3); g.fx.burst(b, 10, 0xd8f0ff, { speed: 5, size: 0.35 }); if (e.alive) g.damage(this, e, 2.0, { knock: 0.2, stun: 0.3 }); });
             hit.add(cur); from = b;
             cur = g.enemiesNear(cur.pos, 8).filter((x) => !hit.has(x)).sort((x, y) => dist2d(x.pos, cur.pos) - dist2d(y.pos, cur.pos))[0];
+          }
+        } }] };
+        break;
+      }
+      // ---------- Okçu ----------
+      case 'multishot': {
+        this.anim.once('Spellcast_Shoot', { timeScale: 1.3, lockFor: 0.5 });
+        const fwd = t ? angleTo(this.pos, t.pos) : this.yaw; if (t) this.yaw = fwd;
+        this.cast = { t: 0, dur: 0.55, events: [{ at: 0.25, fn: () => {
+          sfx.swing();
+          const list = g.enemiesNear(this.pos, 13).filter((e) => Math.abs(angDiff(angleTo(this.pos, e.pos), fwd)) < 0.7).sort((a, b) => dist2d(a.pos, this.pos) - dist2d(b.pos, this.pos)).slice(0, 5);
+          if (!list.length && t) list.push(t);
+          list.forEach((e, k) => g.later(k * 0.05, () => g.arrow(this, e, 1.4)));
+        } }] };
+        break;
+      }
+      case 'poisonarrow': {
+        this.anim.once('Spellcast_Shoot', { timeScale: 1.2, lockFor: 0.5 });
+        this.cast = { t: 0, dur: 0.55, face: t.pos, events: [{ at: 0.3, fn: () => { sfx.magic(); g.arrow(this, t, 1.3, { color: 0x7dff4a, onHit: (e) => g.dot(this, e, 2.0, 6, 0x7dff4a) }); } }] };
+        break;
+      }
+      case 'leapback': {
+        const back = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+        const to = this.pos.clone().addScaledVector(back, 6.5);
+        this.anim.once('Dodge_Forward', { timeScale: 1.5, lockFor: 0.35 });
+        for (const e of g.enemiesNear(this.pos, 5)) g.damage(this, e, 0.4, { slow: 3, color: 'frost' });
+        g.fx.groundRing(this.pos, { color: 0xbfffd0, r0: 0.5, r1: 5, dur: 0.4 }); sfx.frost();
+        this.cast = { t: 0, dur: 0.4, dash: { from: this.pos.clone(), to, time: 0.3 }, events: [] };
+        break;
+      }
+      case 'arrowrain': {
+        const at = t.pos.clone();
+        this.anim.once('Spellcast_Raise', { timeScale: 1.4, lockFor: 0.6 });
+        this.cast = { t: 0, dur: 0.6, face: at, events: [] };
+        g.arrowRain(at, this);
+        break;
+      }
+      case 'snipe': {
+        this.anim.once('Spellcasting', { timeScale: 1.3, lockFor: 1.1 });
+        g.fx.groundRing(this.pos, { color: 0xfff0a0, r0: 2.5, r1: 0.4, dur: 1 });
+        this.cast = { t: 0, dur: 1.2, face: t.pos, events: [{ at: 1.0, fn: () => {
+          this.anim.once('Spellcast_Shoot', { timeScale: 1.2, lockFor: 0.3 }); sfx.heavySwing(); g.fx.shake(0.25);
+          g.arrow(this, t, 6.5, { color: 0xffe066, size: 0.8, speed: 45, big: true });
+        } }] };
+        break;
+      }
+      // ---------- Suikastçı ----------
+      case 'shadowstep': {
+        const behind = t.pos.clone().add(new THREE.Vector3(Math.sin(t.yaw || 0), 0, Math.cos(t.yaw || 0)).multiplyScalar(-(t.radius + 0.9)));
+        g.fx.burst(this.pos.clone().setY(this.pos.y + 1), 30, 0x6a3a9a, { speed: 3, up: 2, size: 0.5, life: 0.5 });
+        this.pos.copy(behind); g.world.resolve(this.pos, this.radius); this.yaw = angleTo(this.pos, t.pos);
+        g.fx.burst(this.pos.clone().setY(this.pos.y + 1), 30, 0xb07aff, { speed: 3, up: 2, size: 0.5, life: 0.5 });
+        this.anim.once('1H_Melee_Attack_Stab', { timeScale: 1.5, lockFor: 0.4 }); sfx.swing();
+        this.cast = { t: 0, dur: 0.45, face: t.pos, events: [{ at: 0.2, fn: () => { g.fx.slash(this.pos, this.yaw, 0xd8a8ff, { radius: 1.8 }); if (t.alive) g.damage(this, t, 1.7, { stun: 0.5 }); } }] };
+        break;
+      }
+      case 'venomblade': {
+        const ev = [];
+        for (let k = 0; k < 3; k++) ev.push({ at: 0.1 + k * 0.18, fn: () => {
+          this.anim.once(k === 1 ? '1H_Melee_Attack_Slice_Diagonal' : '1H_Melee_Attack_Stab', { timeScale: 2.2, lockFor: 0.15 }); sfx.swing();
+          g.fx.slash(this.pos, this.yaw, 0x7dff4a, { radius: 1.7, width: 0.4, tilt: k * 0.5 });
+          if (t.alive && dist2d(this.pos, t.pos) < this.cls.range + t.radius + 1.2) g.damage(this, t, 0.8);
+        } });
+        ev.push({ at: 0.6, fn: () => { if (t.alive) g.dot(this, t, 1.5, 5, 0x7dff4a); } });
+        this.cast = { t: 0, dur: 0.7, face: t.pos, events: ev };
+        break;
+      }
+      case 'vanish': {
+        this.stealthT = 6; this.setStealth(true);
+        g.fx.burst(this.pos.clone().setY(this.pos.y + 1), 50, 0x5a4a7a, { speed: 3, up: 3, size: 0.6, life: 0.8, grav: -1 }); sfx.frost();
+        for (const e of g.enemies) if (e.tgt === this) { e.tgt = null; if (e.state === 'chase') e.state = 'return'; }
+        this.autoAttack = false;
+        g.ui.toast('🌫️ Görünmezsin — sonraki vuruşun 2 kat', '#c8b0ff');
+        break;
+      }
+      case 'bladefan': {
+        this.anim.once('2H_Melee_Attack_Spin', { timeScale: 1.6, lockFor: 0.9 });
+        const ev = [];
+        for (let k = 0; k < 4; k++) ev.push({ at: 0.12 + k * 0.2, fn: () => {
+          sfx.spin(); g.fx.groundRing(this.pos, { color: 0xc8a0ff, r0: 1, r1: 3.6, dur: 0.3 });
+          for (let a = 0; a < 4; a++) g.fx.slash(this.pos, this.yaw + k + a * Math.PI / 2, 0xe0c8ff, { radius: 3, width: 0.4, dur: 0.2 });
+          for (const e of g.enemiesNear(this.pos, 3.6)) g.damage(this, e, 0.75, { knock: 0.2 });
+        } });
+        this.cast = { t: 0, dur: 0.95, events: ev };
+        break;
+      }
+      case 'execute': {
+        this.anim.once('1H_Melee_Attack_Jump_Chop', { timeScale: 1.4, lockFor: 0.7 });
+        this.cast = { t: 0, dur: 0.75, face: t.pos, events: [{ at: 0.45, fn: () => {
+          if (!t.alive) return;
+          const low = t.hp < t.maxHp * 0.3; sfx.heavySwing(); g.fx.shake(0.4); g.fx.stop(0.08);
+          g.fx.slash(this.pos, this.yaw, low ? 0xff3a3a : 0xd8a8ff, { radius: 2.2, width: 0.9, tilt: 1.2 });
+          g.fx.burst(t.pos.clone().setY(t.pos.y + 1.2), low ? 50 : 25, 0xff4a4a, { speed: 6, size: 0.5 });
+          g.damage(this, t, low ? 7.6 : 3.8, { knock: 0.6 });
+        } }] };
+        break;
+      }
+      // ---------- Barbar ----------
+      case 'cleave': {
+        this.anim.once('2H_Melee_Attack_Chop', { timeScale: 1.3, lockFor: 0.6 });
+        if (t) this.yaw = angleTo(this.pos, t.pos);
+        this.cast = { t: 0, dur: 0.65, events: [{ at: 0.35, fn: () => {
+          sfx.heavySwing(); g.fx.shake(0.3);
+          g.fx.slash(this.pos, this.yaw, 0xffa060, { radius: 3.4, width: 1.1, tilt: 0.1, dur: 0.3 });
+          for (const e of g.enemiesNear(this.pos, 4)) if (Math.abs(angDiff(angleTo(this.pos, e.pos), this.yaw)) < 1.3) g.damage(this, e, 2.3, { knock: 1 });
+        } }] };
+        break;
+      }
+      case 'leapslam': {
+        const dir = TMP.subVectors(t.pos, this.pos).setY(0); const d = dir.length(); dir.normalize();
+        const to = this.pos.clone().addScaledVector(dir, Math.max(0, d - t.radius - 0.8));
+        this.yaw = Math.atan2(dir.x, dir.z);
+        this.anim.once('1H_Melee_Attack_Jump_Chop', { timeScale: 1.2, lockFor: 0.7 });
+        this.cast = { t: 0, dur: 0.7, dash: { from: this.pos.clone(), to, time: 0.42 }, events: [{ at: 0.45, fn: () => {
+          this.cast.dash = null; sfx.boom?.(false); g.fx.shake(0.5); g.fx.stop(0.06);
+          g.fx.groundRing(this.pos, { color: 0xffa04a, r0: 0.5, r1: 4, dur: 0.45 }); g.fx.dust(this.pos, 24, 0x8a6a4a, 2);
+          for (const e of g.enemiesNear(this.pos, 3.6)) g.damage(this, e, 1.9, { knock: 1.2, stun: 1 });
+        } }] };
+        break;
+      }
+      case 'bloodlust': {
+        this.anim.once('Cheer', { timeScale: 1.3, lockFor: 0.8 });
+        this.cast = { t: 0, dur: 0.8, events: [{ at: 0.3, fn: () => {
+          sfx.shout(); this.bloodT = 10; g.fx.pillar(this.pos, 0xff2a2a, { h: 6, r: 1.6, dur: 0.8 });
+          g.fx.groundRing(this.pos, { color: 0xff3a3a, r0: 1, r1: 6, dur: 0.6 }); g.ui.toast('🩸 Kan Hırsı! Vurdukça can çalarsın', '#ff8a8a');
+        } }] };
+        break;
+      }
+      case 'axestorm': {
+        sfx.spin();
+        for (let k = 0; k < 6; k++) g.later(k * 0.4, () => {
+          if (this.dead) return;
+          this.anim.once('2H_Melee_Attack_Spin', { timeScale: 1.8, lockFor: 0.3 }); sfx.spin();
+          g.fx.groundRing(this.pos, { color: 0xffb070, r0: 1, r1: 4, dur: 0.35 });
+          for (let a = 0; a < 3; a++) g.fx.slash(this.pos, k * 0.9 + a * 2.1, 0xffd0a0, { radius: 3.3, width: 0.9, dur: 0.22 });
+          for (const e of g.enemiesNear(this.pos, 4)) g.damage(this, e, 0.75, { knock: 0.4 });
+        });
+        this.cast = { t: 0, dur: 0.1, move: true, events: [] };
+        break;
+      }
+      case 'earthsplit': {
+        this.anim.once('2H_Melee_Attack_Chop', { timeScale: 1.0, lockFor: 0.8 });
+        if (t) this.yaw = angleTo(this.pos, t.pos);
+        this.cast = { t: 0, dur: 0.85, events: [{ at: 0.5, fn: () => {
+          sfx.heavySwing(); g.fx.shake(0.7); g.fx.stop(0.08);
+          const f = new THREE.Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw)), from = this.pos.clone();
+          for (let k = 1; k <= 6; k++) g.later(k * 0.05, () => {
+            const c = from.clone().addScaledVector(f, k * 1.7);
+            g.fx.groundRing(c, { color: 0xff6a2a, r0: 0.3, r1: 1.4, dur: 0.5 }); g.fx.dust(c, 10, 0x6a4a3a, 1.4);
+            g.fx.burst(c.clone().setY(c.y + 0.3), 10, 0xff8a3a, { speed: 3, up: 8, size: 0.5, solid: true, grav: 14 });
+          });
+          for (const e of g.enemiesNear(from, 11)) {
+            const rel = TMP.subVectors(e.pos, from).setY(0), along = rel.dot(f), side = Math.abs(rel.x * f.z - rel.z * f.x);
+            if (along > 0 && along < 10.5 && side < 1.6 + e.radius) g.damage(this, e, 4.0, { knock: 0.8, stun: 1.2 });
           }
         } }] };
         break;
@@ -465,7 +644,7 @@ export class Enemy extends Unit {
 
     // Target: whoever we're already fighting, otherwise the nearest living player.
     // Players inside a camp/outpost are off-limits.
-    if (this.tgt && (this.tgt.dead || this.tgt.gone || safeAt(this.tgt.pos.x, this.tgt.pos.z))) this.tgt = null;
+    if (this.tgt && (this.tgt.dead || this.tgt.gone || this.tgt.stealthT > 0 || this.tgt.sth || safeAt(this.tgt.pos.x, this.tgt.pos.z))) this.tgt = null;
     const p = this.tgt || g.nearestPlayer(this.pos);
     const dp = !p || p.dead ? 999 : dist2d(this.pos, p.pos);
     const dh = dist2d(this.pos, this.home);

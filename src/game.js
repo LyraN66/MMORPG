@@ -96,11 +96,11 @@ export class Game {
   }
   setupNpcs() {
     this.npcs = [];
-    // NPCs never use the player classes' models: barbarian smith, rogue merchant, ranger scout.
+    // NPCs never use the player classes' models: hooded townsfolk recoloured per job.
     const LOOK = {
-      smith: { model: 'npc_barbarian', weapon: 'axe_2h', hide: [], tint: 0xb0602a, k: 0 },
-      merchant: { model: 'npc_rogue', weapon: 'dagger', hide: [], tint: 0x7a48c8, k: 0 },
-      quest: { model: 'npc_ranger', hide: [], tint: 0x3a8a5a, k: 0 },
+      smith: { model: 'rogue', weapon: 'axe_1h', hide: ['1H_Crossbow'], tint: 0xb0602a, k: 0.7 },
+      merchant: { model: 'rogue', weapon: null, hide: ['1H_Crossbow'], tint: 0x7a48c8, k: 0.7 },
+      quest: { model: 'rogue', hide: [], tint: 0x3a8a5a, k: 0.15 },
     };
     for (const o of OUTPOSTS) for (const d of o.npcs) {
       const L = LOOK[d.role];
@@ -204,7 +204,7 @@ export class Game {
   players() { return this.coop ? [this.player, ...[...this.coop.remotes.values()].filter((r) => !r.gone && !r.fresh)] : [this.player]; }
   nearestPlayer(pos) {
     let best = null, bd = Infinity;
-    for (const q of this.players()) { if (q.dead || safeAt(q.pos.x, q.pos.z)) continue; const d = dist2d(q.pos, pos); if (d < bd) { bd = d; best = q; } }
+    for (const q of this.players()) { if (q.dead || q.stealthT > 0 || q.sth || safeAt(q.pos.x, q.pos.z)) continue; const d = dist2d(q.pos, pos); if (d < bd) { bd = d; best = q; } }
     return best;
   }
   announceAll(text, kind) { this.ui.announce(text, kind); if (this.coop?.isHost) this.coop.send({ t: 'ann', x: text, k: kind }); }
@@ -264,7 +264,9 @@ export class Game {
     const def = to.isEnemy ? to.def : to === this.player ? to.effDef : (to.def || 5);
     let dmg = atk * mult * (60 / (60 + def * 3)) * (0.9 + Math.random() * 0.2);
     let crit = false;
-    if (isPlayer && Math.random() < 0.12) { crit = true; dmg *= 1.8; }
+    if (isPlayer && from.stealthT > 0) { dmg *= 2; from.stealthT = 0; from.setStealth(false); crit = true; } // assassin ambush
+    if (isPlayer && Math.random() < 0.12 + (from.cls.crit || 0)) { crit = true; dmg *= 1.8; }
+    if (isPlayer && from.bloodT > 0) { const heal = Math.round(dmg * 0.15); from.hp = Math.min(from.maxHp, from.hp + heal); } // bloodlust
     dmg = Math.max(1, Math.round(dmg));
     if (to.isPlayer && to.remote) { // duel hit on another player
       if (!isPlayer || !this.social?.isFoe(to)) return 0;
@@ -298,6 +300,35 @@ export class Game {
     core.add(inner); inner.scale.setScalar(0.4);
     core.position.copy(o.from); this.scene.add(core);
     this.projectiles.push({ ...o, pos: o.from.clone(), mesh: core, life: 3 });
+  }
+
+  // Archer arrow: a real arrow model flying at the target (owner null = remote replay, visuals only).
+  arrow(owner, target, mult, o = {}) {
+    const from = (owner || o.fromUnit).pos.clone(); from.y += 1.35;
+    const mesh = new THREE.Group(); const a = cloneWeapon('arrow', o.big ? 2.2 : 1.4); a.rotation.x = Math.PI / 2; mesh.add(a);
+    const glow = this.fx.glow(o.color || 0xfff2c0, (o.size || 0.35) * 2); mesh.add(glow);
+    mesh.position.copy(from); this.scene.add(mesh);
+    this.projectiles.push({ from, target, speed: o.speed || 32, color: o.color || 0xfff2c0, size: o.size || 0.35, owner: owner || null, mult, kind: 'arrow', visual: !owner, pos: from.clone(), mesh, life: 3, onHit: o.onHit, noSpin: true });
+  }
+  // Damage over time (poison): total multiplier spread over one tick per second.
+  dot(owner, target, total, secs, color = 0x7dff4a) {
+    for (let k = 1; k <= secs; k++) this.later(k, () => {
+      if (!target.alive) return;
+      this.damage(owner, target, total / secs, { color: 'poison' });
+      this.fx.burst(target.pos.clone().setY(target.pos.y + 1.4), 6, color, { speed: 1.5, up: 2, size: 0.3, life: 0.5, grav: -1 });
+    });
+  }
+  arrowRain(at, owner) {
+    this.fx.telegraph(at, 4.5, 0.5, 0xbfffd0);
+    for (let k = 0; k < 6; k++) this.later(0.4 + k * 0.5, () => {
+      for (let i = 0; i < 10; i++) {
+        const p = at.clone().add(new THREE.Vector3((Math.random() - 0.5) * 8, 0, (Math.random() - 0.5) * 8));
+        this.fx.trail(p.clone().setY(heightAt(p.x, p.z) + 3 + Math.random() * 3), 0xe8f8c0, 0.3, 0.3);
+        this.fx.burst(p.setY(heightAt(p.x, p.z) + 0.1), 3, 0xd8e8b0, { speed: 2, up: 2, size: 0.2, life: 0.3 });
+      }
+      if (k === 0) sfx.swing();
+      if (owner) for (const e of this.enemiesNear(at, 4.5)) this.damage(owner, e, 0.7, { knock: 0 });
+    });
   }
 
   // Mage black hole: swirling vortex that drags enemies toward its centre (owner null = remote replay, visuals only).
@@ -683,12 +714,12 @@ export class Game {
       if (aim) { const dir = aim.clone().sub(pr.pos); const d = dir.length(); dir.normalize(); pr.vel = dir.multiplyScalar(pr.speed); if (d < 0.7) pr.life = -1, pr.hit = true; }
       if (pr.vel) pr.pos.addScaledVector(pr.vel, dt);
       pr.mesh.position.copy(pr.pos);
-      pr.mesh.material.rotation += dt * 6;
+      if (pr.noSpin) { if (pr.vel) pr.mesh.lookAt(TMP.copy(pr.pos).add(pr.vel)); } else pr.mesh.material.rotation += dt * 6;
       this.fx.trail(pr.pos, pr.color, pr.size * 0.8, 0.3);
       if (pr.kind === 'fireball') this.fx.trail(pr.pos, 0xffe08a, pr.size * 0.5, 0.25);
       if (pr.life <= 0) {
         if (pr.hit || pr.aoe) this.projectileHit(pr);
-        this.scene.remove(pr.mesh); pr.mesh.material.dispose();
+        this.scene.remove(pr.mesh); pr.mesh.material?.dispose();
         this.projectiles.splice(i, 1);
       }
     }
@@ -708,6 +739,11 @@ export class Game {
       this.fx.burst(at, 20, 0xffe08a, { speed: 5, up: 3, size: 0.5, life: 0.4 });
       if (!pr.visual) for (const e of this.enemiesNear(at, pr.aoe)) this.damage(pr.owner, e, pr.mult * (e === pr.target ? 1 : 0.7), { knock: 0.8 });
       if (!pr.visual && pr.target?.remote && pr.target.alive) this.damage(pr.owner, pr.target, pr.mult);
+      return;
+    }
+    if (pr.kind === 'arrow') {
+      if (pr.hit && !pr.visual && pr.target?.alive) { this.damage(pr.owner, pr.target, pr.mult, { knock: 0.1 }); pr.onHit?.(pr.target); }
+      this.fx.burst(at, 8, pr.color, { speed: 3, size: 0.25, life: 0.3 });
       return;
     }
     if (pr.hit && !pr.visual && pr.target?.alive) this.damage(pr.owner, pr.target, pr.mult, { knock: 0.15 });

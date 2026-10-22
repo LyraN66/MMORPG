@@ -4,7 +4,7 @@ export const GAME_NAME = 'Kemik Vadisi';
 
 export const CLASSES = {
   knight: {
-    id: 'knight', name: 'Şövalye', model: 'knight', desc: 'Kılıç ve kalkan. Yakın dövüş, yüksek dayanıklılık.',
+    id: 'knight', icon: '⚔️', name: 'Şövalye', model: 'knight', weapon: null, offhand: null, desc: 'Kılıç ve kalkan. Yakın dövüş, yüksek dayanıklılık.',
     base: { hp: 140, mp: 50, atk: 14, def: 8 }, grow: { hp: 26, mp: 6, atk: 3.2, def: 2.2 },
     range: 2.3, atkSpeed: 0.85, moveSpeed: 6.2, ranged: false,
     weaponType: 'sword', color: '#ffcf6a',
@@ -17,7 +17,7 @@ export const CLASSES = {
     ],
   },
   mage: {
-    id: 'mage', name: 'Büyücü', model: 'mage', desc: 'Kadim asa. Uzaktan güçlü büyüler, alan hasarı.',
+    id: 'mage', icon: '🔮', name: 'Büyücü', model: 'mage', weapon: null, offhand: null, desc: 'Kadim asa. Uzaktan güçlü büyüler, alan hasarı.',
     base: { hp: 95, mp: 110, atk: 17, def: 4 }, grow: { hp: 17, mp: 14, atk: 3.9, def: 1.3 },
     range: 11, atkSpeed: 0.95, moveSpeed: 6.0, ranged: true,
     weaponType: 'staff', color: '#8fd3ff',
@@ -29,7 +29,48 @@ export const CLASSES = {
       { id: 'blackhole', name: 'Kara Delik', icon: '🌑', unlock: 35, cd: 24, mp: 55, desc: 'Düşmanları içine çeken kara delik: 3 sn boyunca saniyede %180 hasar.' },
     ],
   },
+  archer: {
+    id: 'archer', icon: '🏹', name: 'Okçu', model: 'npc_ranger', weapon: null, offhand: 'bow', desc: 'Yay ile uzaktan hızlı oklar. Çevik ve isabetli.',
+    base: { hp: 105, mp: 80, atk: 16, def: 5 }, grow: { hp: 19, mp: 9, atk: 3.7, def: 1.5 },
+    range: 12, atkSpeed: 0.8, moveSpeed: 6.3, ranged: true, crit: 0.05,
+    weaponType: 'bow', color: '#9fe07a',
+    skills: [
+      { id: 'multishot', name: 'Çoklu Ok', icon: '🎯', unlock: 1, cd: 5, mp: 14, desc: 'Önündeki 5 düşmana aynı anda ok: her biri %140 hasar.' },
+      { id: 'poisonarrow', name: 'Zehirli Ok', icon: '🧪', unlock: 3, cd: 8, mp: 16, desc: '%130 hasar ve 6 sn boyunca toplam %200 zehir hasarı.' },
+      { id: 'leapback', name: 'Geri Sıçrama', icon: '💨', unlock: 6, cd: 12, mp: 15, desc: 'Geriye sıçra, yakındaki düşmanları 3 sn yavaşlat.' },
+      { id: 'arrowrain', name: 'Ok Yağmuru', icon: '🌧️', unlock: 15, cd: 14, mp: 32, desc: 'Hedef bölgeye 3 sn ok yağdır: saniyede %140 alan hasarı.' },
+      { id: 'snipe', name: 'Keskin Nişan', icon: '🏹', unlock: 35, cd: 20, mp: 45, desc: 'Nişan al ve tek hedefe %650 hasarlık ok fırlat.' },
+    ],
+  },
+  assassin: {
+    id: 'assassin', icon: '🗡️', name: 'Suikastçı', model: 'npc_rogue', weapon: 'dagger', offhand: 'dagger', desc: 'Çift hançer. Çok hızlı, kritik vuruşu yüksek, canı az.',
+    base: { hp: 110, mp: 70, atk: 15, def: 5 }, grow: { hp: 21, mp: 8, atk: 3.5, def: 1.6 },
+    range: 2.0, atkSpeed: 0.55, moveSpeed: 6.7, ranged: false, crit: 0.15,
+    weaponType: 'dagger', color: '#c07aff',
+    skills: [
+      { id: 'shadowstep', name: 'Gölge Adımı', icon: '👤', unlock: 1, cd: 6, mp: 12, desc: 'Hedefin arkasına ışınlan ve %170 hasar ver.' },
+      { id: 'venomblade', name: 'Zehirli Bıçak', icon: '🐍', unlock: 3, cd: 7, mp: 14, desc: '3 hızlı darbe (her biri %80) ve zehir: 5 sn toplam %150.' },
+      { id: 'vanish', name: 'Görünmezlik', icon: '🌫️', unlock: 6, cd: 22, mp: 20, desc: '6 sn görünmez ol: moblar seni bırakır, sonraki vuruşun 2 kat.' },
+      { id: 'bladefan', name: 'Bıçak Fırtınası', icon: '🌪️', unlock: 15, cd: 12, mp: 30, desc: 'Etrafında dönen hançerler: 4 kez %75 alan hasarı.' },
+      { id: 'execute', name: 'Ölümcül Darbe', icon: '☠️', unlock: 35, cd: 18, mp: 40, desc: '%380 hasar; canı %30\'un altındaki düşmana 2 kat.' },
+    ],
+  },
+  barbarian: {
+    id: 'barbarian', icon: '🪓', name: 'Barbar', model: 'npc_barbarian', weapon: 'axe_2h', offhand: null, desc: 'İki elli balta. Yavaş ama çok sert; canı azaldıkça öfkelenir.',
+    base: { hp: 160, mp: 45, atk: 17, def: 6 }, grow: { hp: 29, mp: 5, atk: 3.9, def: 1.7 },
+    range: 2.5, atkSpeed: 1.1, moveSpeed: 6.0, ranged: false, rage: true,
+    weaponType: 'axe', color: '#ff8a5a',
+    skills: [
+      { id: 'cleave', name: 'Yarma', icon: '🪓', unlock: 1, cd: 6, mp: 12, desc: 'Önündeki geniş yaya %230 hasar.' },
+      { id: 'leapslam', name: 'Sıçrama Darbesi', icon: '🦘', unlock: 3, cd: 9, mp: 16, desc: 'Hedefe sıçra: alanda %190 hasar ve 1 sn sersemletme.' },
+      { id: 'bloodlust', name: 'Kan Hırsı', icon: '🩸', unlock: 6, cd: 25, mp: 20, desc: '10 sn: +%25 saldırı, verdiğin hasarın %15\'i kadar can.' },
+      { id: 'axestorm', name: 'Balta Kasırgası', icon: '🌀', unlock: 15, cd: 14, mp: 32, desc: 'Yürürken dönen balta: 2.4 sn boyunca 6 kez %75 alan hasarı.' },
+      { id: 'earthsplit', name: 'Yer Yarığı', icon: '🌋', unlock: 35, cd: 20, mp: 45, desc: 'Önündeki 10 m\'lik hatta %400 hasar ve sersemletme.' },
+    ],
+  },
 };
+// Weapon item names per class weapon type (sword/staff come from the tier table).
+export const WEAPON_NOUN = { bow: 'Yay', dagger: 'Hançer', axe: 'Balta' };
 
 import { MAPS, mapById } from './maps.js';
 
@@ -211,7 +252,7 @@ export const SLOTS = [
   { id: 'bracelet', name: 'Bileklik', icon: '🔗' },
 ];
 export const SLOT = Object.fromEntries(SLOTS.map((s) => [s.id, s]));
-export const slotsFor = (cls) => SLOTS.filter((s) => !(s.knightOnly && cls === 'mage'));
+export const slotsFor = (cls) => SLOTS.filter((s) => !(s.knightOnly && cls !== 'knight'));
 // Random loot slot the class can use (weapons a bit more common).
 export function randomSlot(cls) {
   const pool = ['weapon', 'weapon', ...slotsFor(cls).map((s) => s.id).filter((id) => id !== 'weapon')];
@@ -226,8 +267,8 @@ export function makeItem(slot, lv, rarity, cls) {
   const it = { uid: Date.now().toString(36) + (uid++), slot, lv: L, rarity, plus: 0 };
   const R = Math.round;
   if (slot === 'weapon') {
-    const wt = cls === 'mage' ? 'staff' : 'sword';
-    it.name = t[wt]; it.wtype = wt; it.atk = R((6 + L * 3.2) * k);
+    const wt = CLASSES[cls]?.weaponType || 'sword';
+    it.name = t[wt] || `${t.mat} ${WEAPON_NOUN[wt]}`; it.wtype = wt; it.atk = R((6 + L * 3.2) * k);
   } else if (slot === 'chest') { it.name = t.armor; it.def = R((3 + L * 2.2) * k); }
   else if (slot === 'ring') { it.name = t.ring; it.hp = R((15 + L * 9) * k); }
   else if (slot === 'shield') { it.name = `${t.mat} ${SLOT_NOUN.shield}`; it.def = R((2 + L * 1.4) * k); it.hp = R((5 + L * 3) * k); }

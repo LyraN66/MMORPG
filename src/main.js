@@ -96,10 +96,11 @@ addEventListener('resize', resize);
 let preview = [];
 function setupPreview() {
   const base = CAMP_POS.clone();
-  [['knight', -1.3], ['mage', 1.3]].forEach(([m, dx]) => {
-    const ch = makeCharacter(m, {});
+  [['barbarian', -2.6], ['knight', -1.3], ['archer', 0], ['mage', 1.3], ['assassin', 2.6]].forEach(([m, dx]) => {
+    const c = CLASSES[m]; const ch = makeCharacter(c.model, { weapon: c.weapon, offhand: c.offhand });
     const an = new Animator(ch); an.loop('Idle');
-    ch.root.position.set(base.x + dx, heightAt(base.x + dx, base.z - 3.2), base.z - 3.2);
+    const dz = -3.2 - Math.abs(dx) * 0.25;
+    ch.root.position.set(base.x + dx, heightAt(base.x + dx, base.z + dz), base.z + dz);
     ch.root.rotation.y = 0.15 * -Math.sign(dx) + Math.PI * 0;
     scene.add(ch.root); preview.push({ ch, an, m });
   });
@@ -250,7 +251,7 @@ function showClassSelect() {
   const box = $('#classes'); box.innerHTML = '';
   for (const c of Object.values(CLASSES)) {
     const el = document.createElement('div'); el.className = 'ccard' + (c.id === chosen ? ' sel' : '');
-    el.innerHTML = `<div class="cic">${c.id === 'knight' ? '⚔️' : '🔮'}</div><h3>${c.name}</h3><p>${c.desc}</p>
+    el.innerHTML = `<div class="cic">${c.icon}</div><h3>${c.name}</h3><p>${c.desc}</p>
       <div class="cst"><span>Can <b>${c.base.hp}</b></span><span>Mana <b>${c.base.mp}</b></span><span>Saldırı <b>${c.base.atk}</b></span><span>Menzil <b>${c.ranged ? 'Uzak' : 'Yakın'}</b></span></div>
       <div class="csk">${c.skills.map((s) => `<span title="${s.desc}">${s.icon} ${s.name}</span>`).join('')}</div>`;
     el.onclick = () => { chosen = c.id; showClassSelect(); focusPreview(); };
@@ -280,7 +281,7 @@ function showClassSelect() {
 function focusPreview() {
   for (const p of preview) {
     const on = p.m === chosen;
-    if (on && !p.wasOn) p.an.once(p.m === 'knight' ? '1H_Melee_Attack_Slice_Diagonal' : 'Spellcast_Raise', { timeScale: 1, lockFor: 1 });
+    if (on && !p.wasOn) p.an.once({ knight: '1H_Melee_Attack_Slice_Diagonal', mage: 'Spellcast_Raise', archer: 'Spellcast_Shoot', assassin: '1H_Melee_Attack_Stab', barbarian: '2H_Melee_Attack_Chop' }[p.m], { timeScale: 1, lockFor: 1 });
     p.wasOn = on;
   }
 }
