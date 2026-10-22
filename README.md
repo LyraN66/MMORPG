@@ -45,4 +45,4 @@ npm run build      # dist/
 Three.js (WebGL) · Vite · Capacitor (Android) · WebAudio ile üretilen sesler.
 
 ## Lisanslar
-3D modeller ve animasyonlar: [KayKit](https://kaylousberg.itch.io) — Kay Lousberg, **CC0** (Adventurers, Skeletons, Dungeon Remastered, Halloween Bits, Medieval Hexagon). Yazı tipi: Cinzel (SIL OFL).
+3D modeller ve animasyonlar: [KayKit](https://kaylousberg.itch.io) — Kay Lousberg, **CC0** (Adventurers 1.0 & 2.0, Skeletons, Dungeon Remastered, Halloween Bits, Medieval Hexagon). Yazı tipi: Cinzel (SIL OFL).

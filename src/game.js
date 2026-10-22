@@ -93,17 +93,17 @@ export class Game {
   }
   setupNpcs() {
     this.npcs = [];
-    // NPCs never use the player classes' models: hooded townsfolk, recoloured per job.
+    // NPCs never use the player classes' models: barbarian smith, rogue merchant, ranger scout.
     const LOOK = {
-      smith: { weapon: 'axe_2h', hide: ['1H_Crossbow'], tint: 0xb0602a, k: 0.7 },
-      merchant: { weapon: 'dagger', hide: ['1H_Crossbow'], tint: 0x7a48c8, k: 0.7 },
-      quest: { hide: [], tint: 0x3a8a5a, k: 0.15 },
+      smith: { model: 'npc_barbarian', weapon: 'axe_2h', hide: [], tint: 0xb0602a, k: 0 },
+      merchant: { model: 'npc_rogue', weapon: 'dagger', hide: [], tint: 0x7a48c8, k: 0 },
+      quest: { model: 'npc_ranger', hide: [], tint: 0x3a8a5a, k: 0 },
     };
     for (const o of OUTPOSTS) for (const d of o.npcs) {
       const L = LOOK[d.role];
-      const ch = makeCharacter('rogue', { weapon: L.weapon, hideMeshes: L.hide });
+      const ch = makeCharacter(L.model, { weapon: L.weapon, hideMeshes: L.hide });
       const tc = new THREE.Color(L.tint), u = { value: new THREE.Vector4(tc.r, tc.g, tc.b, L.k) };
-      for (const m of ch.materials) {
+      if (L.k) for (const m of ch.materials) {
         m.onBeforeCompile = (sh) => {
           sh.uniforms.uNpc = u;
           sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec4 uNpc;')

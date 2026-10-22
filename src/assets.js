@@ -5,7 +5,7 @@ import { clone as skClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { rigClip } from '../server/shared/rigs.js';
 
 const BASE = import.meta.env.BASE_URL + 'assets/';
-const FILES = ['anims', 'knight', 'mage', 'rogue', 'skel_minion', 'skel_warrior', 'skel_rogue', 'skel_mage', 'props', 'weapons'];
+const FILES = ['anims', 'knight', 'mage', 'rogue', 'skel_minion', 'skel_warrior', 'skel_rogue', 'skel_mage', 'props', 'weapons', 'npc_barbarian', 'npc_rogue', 'npc_ranger'];
 
 export const A = { gltf: {}, clips: {}, props: {}, weapons: {}, rig: {}, rawH: {} };
 
@@ -92,7 +92,13 @@ export function makeCharacter(model, { weapon, offhand, hideMeshes, height } = {
   const actions = {};
   const get = (name) => {
     if (!actions[name]) {
-      const clip = rig ? A.gltf[model].clipMap[rigClip(rig, name)] : A.clips[name];
+      let clip = rig ? A.gltf[model].clipMap[rigClip(rig, name)] : A.clips[name];
+      // Rigs with fewer bones (KayKit 2.0 NPCs): drop tracks for bones they don't have.
+      if (clip && !rig && model.startsWith('npc_')) {
+        const g = A.gltf[model], cache = (g.fit ||= {});
+        if (!cache[name]) { const has = new Set(); g.scene.traverse((o) => has.add(o.name)); const c = clip.clone(); c.tracks = c.tracks.filter((t) => has.has(t.name.split('.')[0])); cache[name] = c; }
+        clip = cache[name];
+      }
       if (!clip) return null;
       actions[name] = mixer.clipAction(clip);
     }
