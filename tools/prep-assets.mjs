@@ -21,7 +21,7 @@ const find = (rel) => {
 const HERO_ANIMS = ['Idle', 'Running_A', 'Walking_A', '1H_Melee_Attack_Chop', '1H_Melee_Attack_Slice_Diagonal',
   '1H_Melee_Attack_Slice_Horizontal', '1H_Melee_Attack_Stab', '2H_Melee_Attack_Spin', '2H_Melee_Attack_Chop',
   'Block', 'Hit_A', 'Death_A', 'Cheer', 'Dodge_Forward', 'Spellcast_Raise', 'Spellcast_Shoot', 'Spellcast_Long',
-  'Spellcasting', 'Jump_Full_Short', 'Use_Item'];
+  'Spellcasting', 'Jump_Full_Short', 'Use_Item', 'PickUp', 'Interact'];
 const SKEL_ANIMS = ['Idle_Combat', 'Idle', 'Walking_D_Skeletons', 'Running_C', 'Running_A', '1H_Melee_Attack_Chop',
   '1H_Melee_Attack_Slice_Diagonal', '1H_Melee_Attack_Jump_Chop', '2H_Melee_Attack_Spinning', '2H_Melee_Attack_Chop',
   'Hit_A', 'Death_C_Skeletons', 'Death_A', 'Spawn_Ground_Skeletons', 'Taunt', 'Spellcast_Shoot', 'Spellcast_Summon',
@@ -52,6 +52,7 @@ const SK = 'KayKit-Character-Pack-Skeletons-1.0/addons/kaykit_character_pack_ske
 await character(`${SK}/Characters/gltf/Skeleton_Warrior.glb`, 'anims.glb', [...new Set([...HERO_ANIMS, ...SKEL_ANIMS])], null, { animsOnly: true });
 await character(`${ADV}/Characters/gltf/Knight.glb`, 'knight.glb', [], ['Knight_', '1H_Sword', 'Badge_Shield'], { noAnims: true });
 await character(`${ADV}/Characters/gltf/Mage.glb`, 'mage.glb', [], ['Mage_', '2H_Staff'], { noAnims: true });
+await character(`${ADV}/Characters/gltf/Rogue_Hooded.glb`, 'rogue.glb', [], ['Rogue_', '1H_Crossbow'], { noAnims: true });
 for (const s of ['Minion', 'Warrior', 'Rogue', 'Mage'])
   await character(`${SK}/Characters/gltf/Skeleton_${s}.glb`, `skel_${s.toLowerCase()}.glb`, [], null, { noAnims: true });
 

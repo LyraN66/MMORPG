@@ -56,6 +56,8 @@
         <div class="gold">🪙 <b id="gold">0</b> <span id="buff" class="hidden">📯 <span></span></span></div>
       </div>
     </div>
+    <div id="qtrack"></div>
+    <div id="channel" class="hidden"><span></span><div class="cbar"><i></i></div></div>
     <div id="target" class="hidden"><div class="nm"></div><div class="bar"><i></i><span class="v"></span></div></div>
     <div id="bossbar" class="hidden"><div class="nm"></div><div class="bar"><b></b><i></i><span class="v"></span></div></div>
     <div id="mmwrap"><canvas id="minimap"></canvas><div id="zonename"></div>
@@ -109,14 +111,28 @@
     <div class="smithgrid"><div id="smithlist"></div><div id="smithpanel"></div></div>
   </div></div>
 
+  <!-- Quests -->
+  <div id="quest" class="modal hidden"><div class="panel small">
+    <div class="ph"><h3>📜 Gözcü Kaan</h3><button class="close">✕</button></div>
+    <p class="npcsay" id="questsay"></p>
+    <div id="questbody"></div>
+  </div></div>
+
+  <!-- Map -->
+  <div id="map" class="modal hidden"><div class="panel map">
+    <div class="ph"><h3>🗺️ Kemik Vadisi</h3><button class="close">✕</button></div>
+    <div class="mapgrid"><div class="mapwrap"><canvas id="mapcv"></canvas></div><div id="maplegend"></div></div>
+  </div></div>
+
   <!-- Menu -->
   <div id="menu" class="modal hidden"><div class="panel small">
     <div class="ph"><h3>Ayarlar</h3><button class="close">✕</button></div>
     <div class="menulist">
       <button class="btn ghost" id="snd"></button>
       <button class="btn ghost" id="qual"></button>
+      <button class="btn ghost" id="perf"></button>
       <p id="qnote" class="hidden warn">Grafik ayarı yeniden açılışta uygulanır.</p>
-      <div class="help"><b>Kontroller</b><br>Mobil: sol tarafta joystick, düşmana dokun = hedefle, yere dokun = yürü, iki parmak = yakınlaştır.<br>PC: WASD / tıkla-yürü, Boşluk = saldır, 1-2-3 = yetenek, Q/E = iksir, I = çanta, tekerlek = zoom.</div>
+      <div class="help"><b>Kontroller</b><br>Mobil: sol tarafta joystick, düşmana dokun = hedefle, yere dokun = yürü, iki parmak = yakınlaştır.<br>PC: WASD / tıkla-yürü, Boşluk = saldır, 1-2-3 = yetenek, Q/E = iksir, F = etkileşim, M = harita, I = çanta, tekerlek = zoom.<br>Mini haritaya dokunarak büyük haritayı açabilirsin.</div>
       <button class="btn" id="tomenu">Ana Menü</button>
     </div>
   </div></div>

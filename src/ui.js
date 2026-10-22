@@ -4,8 +4,11 @@ import { sfx, soundOn, setSound } from './audio.js';
 import { saveGame } from './save.js';
 import { BOUNDS, roadX, CAMP_POS, CRYPT_POS } from './world.js';
 import { dist2d } from './units.js';
+import { QUESTS, GIVER, questReward, objectiveText } from './quests.js';
+import { UNIQUES, ZONES, CAMPS } from './data.js';
 
 const $ = (s) => document.querySelector(s);
+const fmtTime = (t) => { t = Math.max(0, Math.ceil(t)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
 const V = new THREE.Vector3();
 const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 
@@ -37,7 +40,11 @@ export class UI {
     $('#btn-menu').onclick = () => this.openMenu();
     $('#revive').onclick = () => game.revive();
     $('#target').onclick = () => { if (game.player.target) { game.player.autoAttack = true; } };
-    $('#npc-btn').onclick = () => { if (this.nearNpc) this.openNpc(this.nearNpc); };
+    $('#npc-btn').onclick = () => this.interact();
+    $('#minimap').onclick = () => this.openMap();
+    $('#qtrack').onclick = () => this.openMap();
+    this.refreshQuests();
+    if (!game.save.quests.done.length && !game.save.quests.active) setTimeout(() => this.toast(`📜 ${GIVER.name} kampta seni bekliyor (!)`, '#ffe08a'), 2500);
     document.querySelectorAll('.modal .close').forEach((b) => (b.onclick = () => this.closeModal()));
     this.refreshInventory();
   }
@@ -45,16 +52,19 @@ export class UI {
   // ---------- plates ----------
   addPlate(e) {
     const el = h('div', 'plate' + (e.isBoss ? ' boss' : ''), `<div class="nm"><span class="lv">Sv.${e.level}</span> ${e.name}</div><div class="hpb"><i></i></div>`);
-    this.overlay.appendChild(el); this.plates.set(e, { el, bar: el.querySelector('i') });
+    el.style.display = 'none'; this.overlay.appendChild(el); this.plates.set(e, { el, bar: el.querySelector('i'), shown: false });
   }
   removePlate(e) { const p = this.plates.get(e); if (p) { p.el.remove(); this.plates.delete(e); } }
   addNpcPlate(n) {
-    const el = h('div', 'plate npc', `<div class="nm">${n.role === 'smith' ? '⚒️' : '💰'} ${n.name}</div><div class="role">${n.role === 'smith' ? 'Güçlendirme' : 'Market'}</div>`);
-    this.overlay.appendChild(el); this.npcPlates.push({ n, el });
+    const icon = { smith: '⚒️', merchant: '💰', quest: '📜' }[n.role], role = { smith: 'Güçlendirme', merchant: 'Market', quest: 'Görevler' }[n.role];
+    const el = h('div', 'plate npc', `<div class="mark"></div><div class="nm">${icon} ${n.name}</div><div class="role">${role}</div>`);
+    this.overlay.appendChild(el); this.npcPlates.push({ n, el, mark: el.querySelector('.mark') });
   }
   addLootPlate(l) {
-    if (l.kind !== 'item') return;
-    const it = l.data; const el = h('div', 'plate loot', `<div class="nm" style="color:${RARITY[it.rarity].color}">${it.name}</div>`);
+    if (l.kind !== 'item' && l.kind !== 'quest') return;
+    const it = l.data;
+    const el = l.kind === 'quest' ? h('div', 'plate loot', `<div class="nm" style="color:#7dff9a">📜 ${it.item}</div>`)
+      : h('div', 'plate loot', `<div class="nm" style="color:${RARITY[it.rarity].color}">${it.name}</div>`);
     this.overlay.appendChild(el); this.lootPlates.set(l, el);
   }
   removeLootPlate(l) { const el = this.lootPlates.get(l); if (el) { el.remove(); this.lootPlates.delete(l); } }
@@ -70,35 +80,46 @@ export class UI {
     const g = this.g, p = g.player, s = g.save;
     for (const [e, pl] of this.plates) {
       const d = dist2d(e.pos, p.pos);
-      const show = e.alive && e.state !== 'spawn' && d < (e.isBoss ? 40 : 22);
+      const show = e.alive && e.root.visible && e.state !== 'spawn' && d < (e.isBoss ? 40 : 22);
       const sc = show && this.project(e.pos, 2.75 * e.scale + 0.2);
-      if (!sc) { pl.el.style.display = 'none'; continue; }
-      pl.el.style.display = '';
-      pl.el.style.transform = `translate(${sc[0]}px, ${sc[1]}px) translate(-50%, -100%)`;
-      const hurt = e.hp < e.maxHp;
-      pl.el.classList.toggle('hurt', hurt || p.target === e);
-      pl.el.classList.toggle('sel', p.target === e);
-      pl.bar.style.width = (e.hp / e.maxHp) * 100 + '%';
+      if (!sc) { if (pl.shown) { pl.el.style.display = 'none'; pl.shown = false; } continue; }
+      if (!pl.shown) { pl.el.style.display = ''; pl.shown = true; }
+      pl.el.style.transform = `translate(${sc[0] | 0}px, ${sc[1] | 0}px) translate(-50%, -100%)`;
+      const sel = p.target === e, hurt = e.hp < e.maxHp || sel;
+      if (pl.hurt !== hurt) { pl.el.classList.toggle('hurt', hurt); pl.hurt = hurt; }
+      if (pl.sel !== sel) { pl.el.classList.toggle('sel', sel); pl.sel = sel; }
+      const w = Math.round((e.hp / e.maxHp) * 100);
+      if (pl.w !== w) { pl.bar.style.width = w + '%'; pl.w = w; }
       const diff = e.level - p.level;
-      pl.el.dataset.diff = diff >= 3 ? 'red' : diff <= -4 ? 'grey' : diff >= 1 ? 'orange' : 'white';
+      const dc = diff >= 3 ? 'red' : diff <= -4 ? 'grey' : diff >= 1 ? 'orange' : 'white';
+      if (pl.dc !== dc) { pl.el.dataset.diff = dc; pl.dc = dc; }
     }
     let near = null;
-    for (const { n, el } of this.npcPlates) {
+    const qm = g.quests.npcMark();
+    for (const np of this.npcPlates) {
+      const { n, el } = np;
+      if (n.role === 'quest' && np.m !== qm) { np.m = qm; np.mark.textContent = qm; np.mark.className = 'mark ' + (qm === '?' ? 'ready' : qm === '!' ? 'new' : 'wait'); }
       const sc = dist2d(n.pos, p.pos) < 25 && this.project(n.pos, 2.9);
       if (!sc) { el.style.display = 'none'; continue; }
-      el.style.display = ''; el.style.transform = `translate(${sc[0]}px, ${sc[1]}px) translate(-50%, -100%)`;
+      el.style.display = ''; el.style.transform = `translate(${sc[0] | 0}px, ${sc[1] | 0}px) translate(-50%, -100%)`;
       if (dist2d(n.pos, p.pos) < 4.5) near = n;
     }
-    if (near !== this.nearNpc) {
-      this.nearNpc = near;
-      const b = $('#npc-btn'); b.classList.toggle('hidden', !near);
-      if (near) b.innerHTML = near.role === 'smith' ? '⚒️ Demirci' : '💰 Market';
+    // Context action: talk to a nearby NPC, or collect a quest object.
+    const node = !near && !g.quests.channel ? g.quests.nearestNode(p.pos) : null;
+    const act = near ? 'npc:' + near.name : node ? 'node' : '';
+    if (act !== this.actKey) {
+      this.actKey = act; this.nearNpc = near; this.nearNode = node;
+      const b = $('#npc-btn'); b.classList.toggle('hidden', !act);
+      if (near) b.innerHTML = { smith: '⚒️ Demirci', merchant: '💰 Market', quest: '📜 Görevler' }[near.role];
+      else if (node) b.innerHTML = `✋ Topla: ${node.q.item}`;
     }
+    this.nearNode = node;
     for (const [l, el] of this.lootPlates) {
       const sc = this.project(l.mesh.position, 0.9);
       if (!sc || l.flying) { el.style.display = 'none'; continue; }
-      el.style.display = ''; el.style.transform = `translate(${sc[0]}px, ${sc[1]}px) translate(-50%, -100%)`;
+      el.style.display = ''; el.style.transform = `translate(${sc[0] | 0}px, ${sc[1] | 0}px) translate(-50%, -100%)`;
     }
+    if (this.qver !== g.quests.ver) this.refreshQuests();
 
     // HUD bars
     $('#hp i').style.width = (p.hp / p.maxHp) * 100 + '%';
@@ -172,6 +193,23 @@ export class UI {
       c.beginPath(); c.arc(tx(e.pos.x), tz(e.pos.z), 2.2 * devicePixelRatio, 0, 6.28); c.fill();
     }
     for (const n of g.npcs) { c.fillStyle = '#6ad1ff'; c.beginPath(); c.arc(tx(n.pos.x), tz(n.pos.z), 2.5 * devicePixelRatio, 0, 6.28); c.fill(); }
+    // quest objectives
+    const D = devicePixelRatio;
+    const tg = g.quests.targets();
+    let nearest = null, nd = Infinity;
+    for (const t of tg) {
+      const d = Math.hypot(t.x - p.pos.x, t.z - p.pos.z);
+      if (d < nd) { nd = d; nearest = t; }
+      if (t.r) { c.strokeStyle = 'rgba(255,224,138,0.85)'; c.setLineDash([3 * D, 3 * D]); c.lineWidth = 1.5 * D; c.beginPath(); c.arc(tx(t.x), tz(t.z), t.r * scale, 0, 6.28); c.stroke(); c.setLineDash([]); }
+      else if (t.kind === 'node') { c.fillStyle = '#ffe08a'; c.font = `${11 * D}px sans-serif`; c.fillText('✦', tx(t.x), tz(t.z)); }
+    }
+    const qm = g.quests.npcMark();
+    if (qm === '!' || qm === '?') { c.font = `bold ${14 * D}px sans-serif`; c.fillStyle = '#ffd23a'; c.fillText(qm, tx(GIVER.pos[0]), tz(GIVER.pos[1]) - 8 * D); }
+    if (nearest && nd * scale > W / 2 - 12) {
+      const a = Math.atan2(nearest.z - p.pos.z, nearest.x - p.pos.x), r = W / 2 - 10 * D;
+      c.save(); c.translate(W / 2 + Math.cos(a) * r, H / 2 + Math.sin(a) * r); c.rotate(a);
+      c.fillStyle = '#ffd23a'; c.beginPath(); c.moveTo(6 * D, 0); c.lineTo(-4 * D, -5 * D); c.lineTo(-4 * D, 5 * D); c.closePath(); c.fill(); c.restore();
+    }
     // unique arrows at edge when far
     for (const u of g.uniques) if (u.enemy && u.enemy.alive) {
       const dx = u.enemy.pos.x - p.pos.x, dz = u.enemy.pos.z - p.pos.z, d = Math.hypot(dx, dz);
@@ -271,7 +309,212 @@ export class UI {
 
   openNpc(n) {
     if (dist2d(n.pos, this.g.player.pos) > 6) { this.g.player.moveTarget = n.pos.clone().add(new THREE.Vector3(0, 0, 2.5)); return; }
-    if (n.role === 'smith') this.openSmith(); else this.openShop();
+    if (n.role === 'smith') this.openSmith(); else if (n.role === 'quest') this.openQuests(); else this.openShop();
+  }
+  interact() {
+    if (this.nearNpc) this.openNpc(this.nearNpc);
+    else if (this.nearNode) this.g.quests.startCollect(this.nearNode);
+  }
+
+  // ---------- quests ----------
+  refreshQuests() {
+    if (!this.g) return;
+    const qs = this.g.quests; this.qver = qs.ver;
+    const list = qs.list();
+    const el = $('#qtrack');
+    if (!list.length) {
+      const m = qs.npcMark();
+      el.innerHTML = m === '!' ? `<div class="qt"><b>📜 Yeni görev</b><span>${GIVER.name} ile konuş</span></div>` : '';
+      return;
+    }
+    el.innerHTML = list.map(({ q, prog, done, kind }) => `<div class="qt ${done ? 'done' : ''}"><b>${kind === 'bounty' ? '🎯' : '📜'} ${q.name}</b>
+      <span>${done ? `✔ ${GIVER.name}'a dön` : `${objectiveText(q)}: ${prog}/${q.count}`}</span></div>`).join('');
+  }
+
+  channel(label, k) {
+    const el = $('#channel');
+    if (label == null) { el.classList.add('hidden'); return; }
+    el.classList.remove('hidden');
+    el.querySelector('span').textContent = label;
+    el.querySelector('i').style.width = Math.min(100, k * 100) + '%';
+  }
+
+  rewardText(q) {
+    const r = questReward(q, this.g.save.level);
+    const parts = [`✨ ${r.xp.toLocaleString('tr-TR')} XP`, `🪙 ${r.gold}`];
+    if (r.potions?.hp) parts.push(`🧪 ×${r.potions.hp}`);
+    if (r.potions?.mp) parts.push(`💧 ×${r.potions.mp}`);
+    if (r.item != null) parts.push(`<span style="color:${RARITY[r.item].color}">🎁 ${RARITY[r.item].name} eşya</span>`);
+    return parts.join(' · ');
+  }
+
+  openQuests() {
+    const qs = this.g.quests, s = this.g.save; const box = $('#questbody');
+    let html = '';
+    const m = qs.main, nx = qs.next;
+    if (m) {
+      const done = qs.mainDone;
+      html += `<div class="qcard"><h4>📜 ${m.name}</h4><p>${done ? m.done : m.story}</p>
+        <div class="qobj">${objectiveText(m)}: <b>${Math.min(s.quests.prog, m.count)}/${m.count}</b></div>
+        <div class="qrew">${this.rewardText(m)}</div>
+        ${done ? '<button class="btn" data-a="turn-main">Teslim Et</button>' : '<div class="qwait">Devam ediyor…</div>'}</div>`;
+    } else if (nx) {
+      const ok = nx.lv <= s.level;
+      html += `<div class="qcard ${ok ? '' : 'locked'}"><h4>📜 ${nx.name} <small>Sv.${nx.lv}</small></h4><p>${ok ? nx.story : `Bu iş için henüz hazır değilsin. ${nx.lv}. seviyeye ulaşınca gel.`}</p>
+        ${ok ? `<div class="qobj">${objectiveText(nx)}: <b>0/${nx.count}</b></div><div class="qrew">${this.rewardText(nx)}</div><button class="btn" data-a="accept">Kabul Et</button>` : ''}</div>`;
+    } else {
+      html += `<div class="qcard"><h4>🏆 Hikâye tamamlandı</h4><p>Vadinin kurtarıcısı sensin. Sözleşmeler seni bekliyor.</p></div>`;
+    }
+    if (s.quests.done.includes('q1')) {
+      const b = qs.bounty;
+      if (b) {
+        const done = qs.bountyDone;
+        html += `<div class="qcard bounty"><h4>🎯 ${b.name}</h4><p>${b.story}</p>
+          <div class="qobj">${objectiveText(b)}: <b>${Math.min(b.prog, b.count)}/${b.count}</b></div><div class="qrew">${this.rewardText(b)}</div>
+          ${done ? '<button class="btn" data-a="turn-bounty">Teslim Et</button>' : '<button class="btn ghost" data-a="abandon">Vazgeç</button>'}</div>`;
+      } else {
+        html += `<div class="qcard bounty"><h4>🎯 Av Sözleşmesi</h4><p>Tekrarlanabilir işler: seviyene göre avlar ve toplama görevleri. İstediğin kadar al.</p>
+          <button class="btn" data-a="bounty">Sözleşme Al</button></div>`;
+      }
+    }
+    const say = qs.mainDone || qs.bountyDone ? '"Geri döndün! Anlat bakalım, neler yaptın?"' : m ? '"Vakit kaybetme, vadi bekliyor."' : '"Yolcu! Kampımıza hoş geldin. Burada iş çok, cesur el az."';
+    $('#questsay').textContent = say;
+    box.innerHTML = html;
+    box.querySelectorAll('button[data-a]').forEach((b) => (b.onclick = () => {
+      const a = b.dataset.a;
+      if (a === 'accept') qs.accept();
+      else if (a === 'bounty') qs.acceptBounty();
+      else if (a === 'abandon') qs.abandonBounty();
+      else if (a === 'turn-main') qs.turnIn('main');
+      else if (a === 'turn-bounty') qs.turnIn('bounty');
+      this.openQuests();
+    }));
+    this.openModal('#quest');
+  }
+
+  // ---------- world map ----------
+  buildMapBase(W, H) {
+    // Static layer drawn once: zones, terrain tint, road, props, mountains.
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const x = c.getContext('2d');
+    const sx = W / (BOUNDS.maxX - BOUNDS.minX), sz = H / (BOUNDS.maxZ - BOUNDS.minZ);
+    const X = (v) => (v - BOUNDS.minX) * sx, Z = (v) => (v - BOUNDS.minZ) * sz;
+    x.fillStyle = '#0b0a0e'; x.fillRect(0, 0, W, H);
+    for (const zn of ZONES) {
+      const z0 = Math.max(BOUNDS.minZ, zn.zMin), z1 = Math.min(BOUNDS.maxZ, zn.zMax);
+      const col = new THREE.Color(zn.tint).multiplyScalar(0.75);
+      x.fillStyle = '#' + col.getHexString(); x.fillRect(0, Z(z0), W, Z(z1) - Z(z0));
+    }
+    // speckle
+    const pl = this.g.world.placements || [];
+    for (const p of pl) {
+      const n = p.name;
+      if (/^mountain/.test(n)) continue;
+      const col = /tree_pine|trees_/.test(n) ? 'rgba(70,45,25,.45)' : /tree_dead/.test(n) ? 'rgba(40,30,25,.5)' : /grave|gravestone|coffin|crypt|pillar|wall|rubble|arch/.test(n) ? 'rgba(190,185,175,.55)' : null;
+      if (!col) continue;
+      x.fillStyle = col;
+      const r = /tree_pine.*large|trees_/.test(n) ? 2.4 : /tree/.test(n) ? 1.7 : 1.2;
+      x.beginPath(); x.arc(X(p.x), Z(p.z), r * Math.min(sx, sz) * 0.6, 0, 6.28); x.fill();
+    }
+    x.strokeStyle = 'rgba(190,160,110,.9)'; x.lineWidth = 3.2 * sx; x.lineCap = 'round'; x.beginPath();
+    for (let z = BOUNDS.minZ + 4; z <= BOUNDS.maxZ - 2; z += 1.5) { const px = X(roadX(z)), pz = Z(z); z === BOUNDS.minZ + 4 ? x.moveTo(px, pz) : x.lineTo(px, pz); }
+    x.stroke();
+    // mountain border
+    x.strokeStyle = 'rgba(30,25,22,.9)'; x.lineWidth = 7 * sx; x.strokeRect(2 * sx, 2 * sz, W - 4 * sx, H - 4 * sz);
+    // zone separators + names
+    const FD = Math.min(2, devicePixelRatio); x.font = `600 ${Math.round(15 * FD)}px Cinzel, serif`; x.textAlign = 'center'; x.textBaseline = 'middle';
+    for (const zn of ZONES) {
+      const z0 = Math.max(BOUNDS.minZ, zn.zMin), z1 = Math.min(BOUNDS.maxZ, zn.zMax);
+      if (zn.zMin > BOUNDS.minZ) { x.strokeStyle = 'rgba(255,230,180,.25)'; x.setLineDash([6, 6]); x.lineWidth = 1; x.beginPath(); x.moveTo(0, Z(zn.zMin)); x.lineTo(W, Z(zn.zMin)); x.stroke(); x.setLineDash([]); }
+      const cy = (Z(z0) + Z(z1)) / 2;
+      x.fillStyle = 'rgba(0,0,0,.6)'; x.fillText(zn.name, W * 0.22 + 2, cy + 2); x.fillStyle = '#f3dc9c'; x.fillText(zn.name, W * 0.22, cy);
+      if (zn.lv[0]) { x.font = `${Math.round(12 * FD)}px sans-serif`; x.fillStyle = '#e8d3a0'; x.fillText(`Seviye ${zn.lv[0]}–${zn.lv[1]}`, W * 0.22, cy + 18 * FD); x.font = `600 ${Math.round(15 * FD)}px Cinzel, serif`; }
+    }
+    return c;
+  }
+
+  openMap() {
+    this.openModal('#map');
+    const cv = $('#mapcv'); const box = cv.parentElement.getBoundingClientRect();
+    const D = Math.min(2, devicePixelRatio);
+    const W = Math.round(box.width * D), H = Math.round(box.height * D);
+    cv.style.width = box.width + 'px'; cv.style.height = box.height + 'px';
+    cv.width = W; cv.height = H;
+    // Fill the width; the valley is tall, so the map scrolls north/south.
+    const k = Math.min(W / (BOUNDS.maxX - BOUNDS.minX), H / 72);
+    const mw = Math.round((BOUNDS.maxX - BOUNDS.minX) * k), fullH = Math.round((BOUNDS.maxZ - BOUNDS.minZ) * k);
+    if (!this.mapBase || this.mapBase.width !== mw || this.mapBase.height !== fullH) this.mapBase = this.buildMapBase(mw, fullH);
+    const viewH = H / k;
+    const lo = BOUNDS.minZ + viewH / 2, hi = BOUNDS.maxZ - viewH / 2;
+    const clampZ = (z) => (lo > hi ? (BOUNDS.minZ + BOUNDS.maxZ) / 2 : Math.min(hi, Math.max(lo, z)));
+    this.map = { k, viewH, cz: clampZ(this.g.player.pos.z), clampZ, D, ox: Math.round((W - mw) / 2) };
+    if (!cv.dataset.bound) {
+      cv.dataset.bound = '1';
+      let drag = null;
+      cv.addEventListener('pointerdown', (e) => { drag = { y: e.clientY, cz: this.map.cz }; cv.setPointerCapture(e.pointerId); });
+      cv.addEventListener('pointermove', (e) => { if (drag) this.map.cz = this.map.clampZ(drag.cz - (e.clientY - drag.y) * this.map.D / this.map.k); });
+      cv.addEventListener('pointerup', () => { drag = null; });
+      cv.addEventListener('wheel', (e) => { this.map.cz = this.map.clampZ(this.map.cz + e.deltaY * 0.05); e.preventDefault(); }, { passive: false });
+    }
+    const draw = () => {
+      if ($('#map').classList.contains('hidden')) return;
+      this.drawMap(cv); requestAnimationFrame(draw);
+    };
+    draw();
+    this.mapLegend();
+  }
+
+  drawMap(cv) {
+    const g = this.g, p = g.player, c = cv.getContext('2d'), W = cv.width, H = cv.height, { k, viewH, cz, D, ox } = this.map;
+    const top = cz - viewH / 2;
+    c.fillStyle = '#0b0a0e'; c.fillRect(0, 0, W, H);
+    const oy = (H - this.mapBase.height) / 2;
+    let Z;
+    const mw = this.mapBase.width;
+    if (oy >= 0) { c.drawImage(this.mapBase, ox, oy); Z = (v) => oy + (v - BOUNDS.minZ) * k; }
+    else { c.drawImage(this.mapBase, 0, (top - BOUNDS.minZ) * k, mw, H, ox, 0, mw, H); Z = (v) => (v - top) * k; }
+    const X = (v) => ox + (v - BOUNDS.minX) * k;
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    for (const cp of CAMPS) {
+      const lvl = g.save.level, hard = cp[4] > lvl + 2, easy = cp[5] < lvl - 3;
+      c.fillStyle = hard ? '#ff3a2a' : easy ? '#9a9a9a' : '#ffa040';
+      c.beginPath(); c.arc(X(cp[0]), Z(cp[1]), 4 * D, 0, 6.28); c.fill(); c.strokeStyle = '#000'; c.lineWidth = 1.2 * D; c.stroke();
+      c.font = `bold ${9 * D}px sans-serif`; c.fillStyle = '#000'; c.fillText(`${cp[4]}-${cp[5]}`, X(cp[0]) + D, Z(cp[1]) - 9 * D + D);
+      c.fillStyle = '#fff'; c.fillText(`${cp[4]}-${cp[5]}`, X(cp[0]), Z(cp[1]) - 9 * D);
+    }
+    const t = performance.now() / 1000;
+    for (const q of g.quests.targets()) {
+      if (q.r) { c.strokeStyle = 'rgba(255,224,138,.95)'; c.lineWidth = 2 * D; c.setLineDash([5 * D, 4 * D]); c.beginPath(); c.arc(X(q.x), Z(q.z), q.r * k * (1 + Math.sin(t * 3) * 0.08), 0, 6.28); c.stroke(); c.setLineDash([]); }
+      else if (q.kind === 'node') { c.font = `${15 * D}px sans-serif`; c.fillStyle = '#ffe08a'; c.fillText('✦', X(q.x), Z(q.z)); }
+    }
+    c.font = `${20 * D}px sans-serif`;
+    c.fillText('⛺', X(CAMP_POS.x), Z(CAMP_POS.z)); c.fillText('🏛️', X(CRYPT_POS.x), Z(CRYPT_POS.z + 2));
+    for (const u of g.uniques) {
+      const d = u.def; const alive = u.enemy && u.enemy.alive;
+      c.font = `${20 * D}px sans-serif`; c.globalAlpha = alive ? 1 : 0.5; c.fillText('💀', X(d.pos[0]), Z(d.pos[1])); c.globalAlpha = 1;
+      c.font = `bold ${11 * D}px sans-serif`; c.fillStyle = '#000'; c.fillText(alive ? 'BURADA!' : fmtTime(u.timer), X(d.pos[0]) + D, Z(d.pos[1]) + 17 * D + D);
+      c.fillStyle = alive ? '#ff6a4a' : '#eee'; c.fillText(alive ? 'BURADA!' : fmtTime(u.timer), X(d.pos[0]), Z(d.pos[1]) + 17 * D);
+    }
+    for (const n of g.npcs) { c.fillStyle = '#6ad1ff'; c.beginPath(); c.arc(X(n.pos.x), Z(n.pos.z), 3.5 * D, 0, 6.28); c.fill(); }
+    const qm = g.quests.npcMark();
+    if (qm === '!' || qm === '?') { c.font = `900 ${20 * D}px sans-serif`; c.fillStyle = '#ffd23a'; c.fillText(qm, X(GIVER.pos[0]) + 9 * D, Z(GIVER.pos[1]) - 10 * D); }
+    c.save(); c.translate(X(p.pos.x), Z(p.pos.z)); c.rotate(-p.yaw + Math.PI);
+    const s = 8 * D; c.fillStyle = '#fff'; c.strokeStyle = '#000'; c.lineWidth = 2 * D;
+    c.beginPath(); c.moveTo(0, -s * 1.3); c.lineTo(s, s); c.lineTo(0, s * 0.4); c.lineTo(-s, s); c.closePath(); c.fill(); c.stroke(); c.restore();
+    // scroll hints
+    c.font = `${12 * D}px sans-serif`; c.fillStyle = 'rgba(255,240,200,.7)';
+    if (cz - viewH / 2 > BOUNDS.minZ + 1) c.fillText('▲ kuzey', W / 2, 10 * D);
+    if (cz + viewH / 2 < BOUNDS.maxZ - 1) c.fillText('▼ güney', W / 2, H - 10 * D);
+  }
+
+  mapLegend() {
+    const g = this.g;
+    const rows = g.uniques.map((u) => `<div class="lg"><span>💀 ${u.def.name}</span><b>${u.enemy && u.enemy.alive ? '<em>Sahada!</em>' : fmtTime(u.timer)}</b></div>`).join('');
+    const qs = g.quests.list().map(({ q, prog, done }) => `<div class="lg"><span>${done ? '✔' : '📜'} ${q.name}</span><b>${done ? 'Teslim et' : prog + '/' + q.count}</b></div>`).join('');
+    $('#maplegend').innerHTML = `<h4>Unique Boss'lar</h4>${rows}<h4>Görevler</h4>${qs || '<div class="lg dim">Aktif görev yok</div>'}
+      <div class="keys"><span>⛺ Kamp</span><span>🏛️ Tapınak</span><span><i class="dot org"></i> Mob kampı (seviye)</span><span><i class="dot red"></i> Zor</span><span><i class="dot blue"></i> NPC</span><span>✦ Toplanacak</span><span><i class="ring"></i> Görev bölgesi</span></div>`;
+    clearTimeout(this.legendT);
+    if (!$('#map').classList.contains('hidden')) this.legendT = setTimeout(() => this.mapLegend(), 1000);
   }
 
   openShop() {
@@ -334,12 +577,15 @@ export class UI {
     $('#snd').textContent = soundOn() ? '🔊 Ses: Açık' : '🔇 Ses: Kapalı';
     $('#snd').onclick = () => { setSound(!soundOn()); this.openMenu(); };
     const q = localStorage.getItem('kv-quality') || 'auto';
-    $('#qual').textContent = '🎨 Grafik: ' + { auto: 'Otomatik', high: 'Yüksek', medium: 'Orta', low: 'Düşük' }[q];
+    $('#qual').textContent = '🎨 Grafik: ' + { auto: 'Yüksek + otomatik çözünürlük', high: 'Yüksek', medium: 'Orta', low: 'Düşük' }[q];
     $('#qual').onclick = () => {
       const order = ['auto', 'high', 'medium', 'low']; const n = order[(order.indexOf(q) + 1) % 4];
       try { localStorage.setItem('kv-quality', n); } catch { /* ignore */ }
       this.openMenu(); $('#qnote').classList.remove('hidden');
     };
+    let perf = false; try { perf = localStorage.getItem('kv-perf') === '1'; } catch { /* ignore */ }
+    $('#perf').textContent = perf ? '📊 Performans göstergesi: Açık' : '📊 Performans göstergesi: Kapalı';
+    $('#perf').onclick = () => { try { localStorage.setItem('kv-perf', perf ? '0' : '1'); } catch { /* ignore */ } window.__kv?.setPerf(!perf); this.openMenu(); };
     $('#tomenu').onclick = () => { saveGame(this.g.save, this.g.player); location.reload(); };
     this.openModal('#menu');
   }

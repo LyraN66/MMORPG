@@ -327,7 +327,11 @@ export class Enemy extends Unit {
 
   update(dt) {
     const g = this.game, p = g.player;
-    this.anim.update(dt * (this.slowT > 0 ? 0.6 : 1));
+    // Animation LOD: off-screen characters don't pose their skeleton; distant ones update at half rate.
+    const adt = dt * (this.slowT > 0 ? 0.6 : 1);
+    this.animAcc = (this.animAcc || 0) + adt;
+    if (this.animate !== false) { this.anim.update(adt, Math.min(this.animAcc, 2)); this.animAcc = 0; }
+    else this.anim.update(adt, 0);
     this.slowT -= dt; this.stunT -= dt; this.atkCd -= dt; this.stateT -= dt;
     if (this.slowT > 0 && Math.random() < 0.2) g.fx.trail(TMP.copy(this.pos).setY(this.pos.y + 1 + Math.random()), 0x9fe8ff, 0.3, 0.5);
     if (!this.alive) {
@@ -404,7 +408,7 @@ export class Enemy extends Unit {
     }
     // separation
     for (const o of g.enemies) {
-      if (o === this || !o.alive) continue;
+      if (o === this || !o.alive || !o.awake) continue;
       const dx = this.pos.x - o.pos.x, dz = this.pos.z - o.pos.z, d = Math.hypot(dx, dz), m = this.radius + o.radius;
       if (d < m && d > 1e-3) { const k = (m - d) * 0.5; this.pos.x += dx / d * k; this.pos.z += dz / d * k; }
     }

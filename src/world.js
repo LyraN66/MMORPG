@@ -65,7 +65,7 @@ export class World {
   build() {
     const s = this.scene;
     // Sky dome with gradient + stars + moon
-    const skyGeo = new THREE.SphereGeometry(400, 32, 16);
+    const skyGeo = new THREE.SphereGeometry(120, 32, 16);
     const skyMat = new THREE.ShaderMaterial({
       side: THREE.BackSide, depthWrite: false, fog: false,
       uniforms: { top: { value: new THREE.Color(0x0b1026) }, mid: { value: new THREE.Color(0x3a2d4f) }, bot: { value: new THREE.Color(0xc46a3d) } },
@@ -79,15 +79,16 @@ export class World {
     const r0 = rng(7);
     for (let i = 0; i < 900; i++) {
       const th = r0() * Math.PI * 2, ph = Math.acos(0.15 + r0() * 0.85);
-      sp.push(380 * Math.sin(ph) * Math.cos(th), 380 * Math.cos(ph), 380 * Math.sin(ph) * Math.sin(th));
+      sp.push(112 * Math.sin(ph) * Math.cos(th), 112 * Math.cos(ph), 112 * Math.sin(ph) * Math.sin(th));
     }
     starGeo.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
     this.stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 1.4, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.8 }));
     s.add(this.stars);
-    const moon = new THREE.Mesh(new THREE.CircleGeometry(14, 32), new THREE.MeshBasicMaterial({ color: 0xffe9c4, fog: false }));
-    moon.position.set(-140, 150, -300); moon.lookAt(0, 0, 0); s.add(moon);
-    const halo = new THREE.Mesh(new THREE.CircleGeometry(40, 32), new THREE.MeshBasicMaterial({ color: 0xffd6a0, fog: false, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false }));
-    halo.position.copy(moon.position).multiplyScalar(1.01); halo.lookAt(0, 0, 0); s.add(halo);
+    // Sky, stars and moon live inside the camera's far plane and follow the player.
+    const moon = new THREE.Mesh(new THREE.CircleGeometry(4.2, 32), new THREE.MeshBasicMaterial({ color: 0xffe9c4, fog: false }));
+    moon.position.set(-42, 45, -90); moon.lookAt(0, 0, 0); this.sky.add(moon);
+    const halo = new THREE.Mesh(new THREE.CircleGeometry(12, 32), new THREE.MeshBasicMaterial({ color: 0xffd6a0, fog: false, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false }));
+    halo.position.copy(moon.position).multiplyScalar(1.01); halo.lookAt(0, 0, 0); this.sky.add(halo);
 
     // Lighting
     s.add(new THREE.HemisphereLight(0x8a9bd0, 0x3b2a20, 1.25));
@@ -96,7 +97,7 @@ export class World {
     sun.castShadow = this.quality !== 'low';
     const sm = this.quality === 'high' ? 2048 : 1024;
     sun.shadow.mapSize.set(sm, sm);
-    const sc = sun.shadow.camera; sc.left = -32; sc.right = 32; sc.top = 32; sc.bottom = -32; sc.near = 1; sc.far = 120;
+    const sc = sun.shadow.camera; sc.left = -28; sc.right = 28; sc.top = 28; sc.bottom = -28; sc.near = 1; sc.far = 120;
     sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
     s.add(sun); s.add(sun.target);
     this.sun = sun;
@@ -110,7 +111,7 @@ export class World {
 
   buildTerrain() {
     const W = BOUNDS.maxX - BOUNDS.minX + 60, H = BOUNDS.maxZ - BOUNDS.minZ + 60;
-    const seg = this.quality === 'low' ? 110 : 180;
+    const seg = this.quality === 'low' ? 80 : 120;
     const geo = new THREE.PlaneGeometry(W, H, seg, Math.round(seg * H / W));
     geo.rotateX(-Math.PI / 2);
     geo.translate((BOUNDS.minX + BOUNDS.maxX) / 2, 0, (BOUNDS.minZ + BOUNDS.maxZ) / 2);
@@ -272,8 +273,16 @@ export class World {
     // Unique arena in graveyard
     for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; put('post_skull', -24 + Math.cos(a) * 7, -8 + Math.sin(a) * 7, { ry: -a, col: 0.35 }); }
 
+    this.placements = P;
     this.propsGroup = buildInstancedProps(P);
     this.scene.add(this.propsGroup);
+    const SMALL = /bone|skull|ribcage|candle|coin|rock_single|stool|lantern_standing|pumpkin|plaque|shrine|coffin|gravemarker|barrel|crate|box_|keg|table|chest|torch/;
+    this.chunks = [];
+    for (const im of this.propsGroup.children) {
+      if (/^mountain/.test(im.name) || im.userData.zc === undefined) continue;
+      im.userData.reach = SMALL.test(im.name) ? 42 : 80;
+      this.chunks.push(im);
+    }
     // Props between the camera and the player dissolve (dithered) so the hero is never hidden.
     this.occl = { uCam: { value: new THREE.Vector3() }, uPl: { value: new THREE.Vector3() } };
     const seen = new Set();
@@ -344,8 +353,9 @@ export class World {
         .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= mix(0.55, 1.25, vH);');
       sh.vertexShader = sh.vertexShader.replace('#include <beginnormal_vertex>', 'vec3 objectNormal = vec3(0.,1.,0.);');
     };
-    const im = new THREE.InstancedMesh(blade, mat, count);
+    // Grass is split into bands along z so only the strips near the camera are drawn.
     const R = rng(99), m = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
+    const BAND = 16, bands = new Map(); this.grassChunks = [];
     let n = 0, tries = 0;
     while (n < count && tries++ < count * 4) {
       const x = BOUNDS.minX + R() * (BOUNDS.maxX - BOUNDS.minX), z = BOUNDS.minZ + 8 + R() * (BOUNDS.maxZ - BOUNDS.minZ - 8);
@@ -355,16 +365,21 @@ export class World {
       q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), R() * 6.28);
       const sc = 0.6 + R() * 0.8;
       m.compose(new THREE.Vector3(x, heightAt(x, z) - 0.02, z), q, new THREE.Vector3(sc, sc * (0.6 + R() * 0.7), sc));
-      im.setMatrixAt(n, m);
       const zn = ZONES.find((zz) => z >= zz.zMin && z < zz.zMax) || ZONES[1];
       col.set(zn.tint).offsetHSL((R() - 0.5) * 0.05, 0.05, 0.02 + (R() - 0.5) * 0.08);
-      im.setColorAt(n, col);
+      const k = Math.floor(z / BAND);
+      if (!bands.has(k)) bands.set(k, []);
+      bands.get(k).push([m.clone(), col.clone()]);
       n++;
     }
-    im.count = n;
-    im.receiveShadow = true;
-    im.frustumCulled = false;
-    this.scene.add(im);
+    for (const list of bands.values()) {
+      const im = new THREE.InstancedMesh(blade, mat, list.length);
+      list.forEach(([mm, cc], i) => { im.setMatrixAt(i, mm); im.setColorAt(i, cc); });
+      im.receiveShadow = true;
+      im.computeBoundingSphere(); im.boundingSphere.radius += 1;
+      im.userData.zc = im.boundingSphere.center.z; im.userData.reach = 46;
+      this.scene.add(im); this.grassChunks.push(im);
+    }
   }
 
   buildAmbientMotes() {
@@ -400,6 +415,16 @@ export class World {
     this.sun.position.set(playerPos.x - 25, 45, playerPos.z + 18);
     this.sun.target.position.copy(playerPos);
     this.sky.position.copy(playerPos); this.stars.position.copy(playerPos);
+    this.cullT = (this.cullT || 0) - dt;
+    if (this.cullT <= 0) {
+      this.cullT = 0.2;
+      // Hide chunks the fog has already swallowed; small clutter goes earlier.
+      for (const im of this.grassChunks || []) { const dz = im.userData.zc - playerPos.z; im.visible = dz > -46 && dz < 22; }
+      for (const im of this.chunks) {
+        const dz = im.userData.zc - playerPos.z;
+        im.visible = dz > -im.userData.reach && dz < Math.min(26, im.userData.reach * 0.5);
+      }
+    }
     for (const L of this.lights) L.l.intensity = L.base * (0.85 + Math.sin(this.time * 13 + L.base) * 0.08 + Math.sin(this.time * 7.3) * 0.07);
     for (const f of this.flames) {
       const fl = 0.88 + Math.sin(this.time * 12 + f.seed) * 0.08 + Math.sin(this.time * 23 + f.seed * 2) * 0.05;

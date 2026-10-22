@@ -7,12 +7,20 @@ Telefonda ve tarayıcıda oynanan 3D aksiyon RPG prototipi. Lanetli bir vadide i
 - **Bölgeler:** Sürgün Kampı (güvenli) → Solgun Orman (Sv.1–4) → Kırık Mezarlık (Sv.4–8) → Kemik Tapınağı (Sv.8–13).
 - **Unique boss'lar:** Çürük Kral Gorran (Mezarlık, ~2.5 dk'da bir) ve Kemik Lordu Morvath (Tapınak, ~5 dk'da bir). Sıçrama, dönme ve minyon çağırma saldırıları; %35 canın altında öfkelenirler.
 - **Ganimet:** Altın, iksir ve 4 nadirlikte eşya (Sıradan / Nadir / Destansı / Efsanevi).
+- **Görevler:** Kamptaki *Gözcü Kaan*'dan 10 görevlik hikâye zinciri (mob kesme, yerden toplama, mobdan düşen eşyayı toplama, boss) ve seviyeye göre tekrarlanabilir av sözleşmeleri. Ekranın solunda görev takibi, haritada görev bölgeleri.
+- **Harita:** Mini haritaya dokun (veya M) → kaydırılabilir tam bölge haritası, mob kampı seviyeleri ve boss doğma süreleri.
 - **Demirci:** Eşyaları +10'a kadar güçlendir. +4 ve üstünde başarısızlık seviyeyi düşürür; +5'ten itibaren silah parlar.
 - İlerleme cihazda otomatik kaydedilir.
 
 ## Kontroller
 - **Mobil:** Sol yarıda joystick · düşmana dokun = hedefle ve saldır · yere dokun = yürü · iki parmak = yakınlaştır.
-- **PC:** WASD veya tıkla-yürü · Boşluk = saldır · 1/2/3 = yetenek · Q/E = can/mana iksiri · I = çanta · tekerlek = zoom.
+- **PC:** WASD veya tıkla-yürü · Boşluk = saldır · 1/2/3 = yetenek · Q/E = can/mana iksiri · F = etkileşim · M = harita · I = çanta · tekerlek = zoom.
+
+## Performans
+- Uzaktaki ve ekran dışındaki düşmanlar "uyur" (yapay zekâ, animasyon ve çizim yapılmaz).
+- Dünya bölgelere ayrılmıştır; sisin arkasında kalan obje ve çimler çizilmez.
+- Çözünürlük FPS'e göre otomatik ayarlanır (grafik kalitesi Yüksek kalır).
+- Ayarlar → *Performans göstergesi* ile FPS, çözünürlük ve çizim sayısı görülebilir.
 
 ## APK
 Her `main` push'unda GitHub Actions oyunu derler ve **Releases → latest** altına `KemikVadisi.apk` koyar. İndirip telefona kur; yeni sürüm eskisinin üstüne kurulur (aynı imza anahtarı kullanılır).

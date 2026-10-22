@@ -22,12 +22,18 @@ const $ = (s) => document.querySelector(s);
 // ---------- quality ----------
 const coarse = matchMedia('(pointer: coarse)').matches;
 let qPref = 'auto'; try { qPref = localStorage.getItem('kv-quality') || 'auto'; } catch { /* ignore */ }
-const quality = qPref === 'auto' ? (coarse ? 'medium' : 'high') : qPref;
+// 'auto' = full visual quality everywhere; resolution adapts to keep frame rate high.
+const quality = qPref === 'auto' ? 'high' : qPref;
+let showPerf = false; try { showPerf = localStorage.getItem('kv-perf') === '1'; } catch { /* ignore */ }
 
 // ---------- renderer ----------
 const canvas = $('#c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: quality !== 'low', powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, quality === 'high' ? 2 : quality === 'medium' ? 1.5 : 1));
+const dprMax = Math.min(devicePixelRatio, quality === 'high' ? 2 : quality === 'medium' ? 1.5 : 1);
+const dprMin = Math.min(dprMax, 1);
+let dpr = coarse ? Math.min(dprMax, 1.6) : dprMax;
+renderer.setPixelRatio(dpr);
+renderer.info.autoReset = false;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
@@ -36,11 +42,14 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x2d2f36, 0.019);
-const camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 0.3, 900);
+const camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 0.3, 140);
 
 let composer = null;
 if (quality === 'high') {
-  composer = new EffectComposer(renderer);
+  // Multisampled target keeps edges smooth when post-processing is on.
+  const rt = new THREE.WebGLRenderTarget(innerWidth * dpr, innerHeight * dpr, { type: THREE.HalfFloatType, samples: 4 });
+  composer = new EffectComposer(renderer, rt);
+  composer.setPixelRatio(dpr);
   composer.addPass(new RenderPass(scene, camera));
   composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.55, 0.5, 0.82));
   composer.addPass(new OutputPass());
@@ -134,6 +143,8 @@ function startGame(save) {
     else if (k === 'q') game.player.usePotion('hp');
     else if (k === 'e') game.player.usePotion('mp');
     else if (k === 'i' || k === 'b') ui.openInventory();
+    else if (k === 'f') ui.interact();
+    else if (k === 'm') { if (document.querySelector('#map').classList.contains('hidden')) ui.openMap(); else ui.closeModal(); }
     else if (k === 'escape') ui.closeModal();
   };
   addEventListener('visibilitychange', () => { if (document.hidden) saveGame(game.save, game.player); });
@@ -142,10 +153,23 @@ function startGame(save) {
 
 // ---------- loop ----------
 const clock = new THREE.Clock();
-let fpsT = 0, frames = 0;
+let fpsT = 0, frames = 0, good = 0;
+// Adaptive resolution: drop render scale when the frame rate sags, raise it back when there is headroom.
+function adaptResolution(fps) {
+  if (!game) return;
+  let next = dpr;
+  if (fps < 50) { next = Math.max(dprMin, dpr - (fps < 35 ? 0.3 : 0.15)); good = 0; }
+  else if (fps > 57) { if (++good >= 3) { next = Math.min(dprMax, dpr + 0.1); good = 0; } }
+  else good = 0;
+  if (Math.abs(next - dpr) > 0.01) {
+    dpr = next; renderer.setPixelRatio(dpr); composer?.setPixelRatio(dpr); resize();
+  }
+}
 function loop() {
   requestAnimationFrame(loop);
-  const dt = Math.min(clock.getDelta(), 0.1);
+  const raw = clock.getDelta();
+  const dt = Math.min(raw, 0.1);
+  renderer.info.reset();
   input.update();
   if (game) game.update(dt);
   else if (world) {
@@ -155,8 +179,13 @@ function loop() {
     fx.update(dt, dt);
   }
   if (composer) composer.render(); else renderer.render(scene, camera);
-  frames++; fpsT += dt;
-  if (fpsT > 1) { $('#fps').textContent = frames + ' fps'; frames = 0; fpsT = 0; }
+  frames++; fpsT += raw;
+  if (fpsT > 1.5) {
+    const fps = frames / fpsT;
+    const el = $('#fps'); el.classList.toggle('show', showPerf);
+    el.textContent = showPerf ? `${Math.round(fps)} fps · ${dpr.toFixed(2)}x · ${renderer.info.render.calls} çizim · ${Math.round(renderer.info.render.triangles / 1000)}k üçgen` : Math.round(fps) + ' fps';
+    adaptResolution(fps); frames = 0; fpsT = 0;
+  }
 }
 
 // ---------- boot ----------
@@ -174,7 +203,7 @@ function loop() {
   world = new World(scene, quality);
   resize();
   setupPreview();
-  window.__kv = { scene, camera, input, get world() { return world; }, get game() { return game; }, THREE };
+  window.__kv = { scene, camera, input, renderer, setPerf: (v) => { showPerf = v; }, get world() { return world; }, get game() { return game; }, THREE };
   // warm up shaders
   renderer.compile(scene, camera);
   $('#loadbar i').style.width = '100%';

@@ -2,11 +2,15 @@ import * as THREE from 'three';
 import { heightAt, CAMP_POS, rng } from './world.js';
 import { Player, Enemy, dist2d } from './units.js';
 import { CAMPS, UNIQUES, xpToNext, MAX_LEVEL, makeItem, RARITY, zoneAt } from './data.js';
-import { cloneProp, makeCharacter, Animator } from './assets.js';
+import { cloneProp, cloneWeapon, makeCharacter, Animator } from './assets.js';
+import { Quests, GIVER } from './quests.js';
 import { sfx } from './audio.js';
 import { saveGame } from './save.js';
 
 const TMP = new THREE.Vector3();
+const PM = new THREE.Matrix4(), FRUSTUM = new THREE.Frustum(), SPH = new THREE.Sphere();
+let EID = 0;
+const FOGC = new THREE.Color();
 
 export class Game {
   constructor({ renderer, scene, camera, ui, input, save, quality, world, fx }) {
@@ -25,6 +29,7 @@ export class Game {
     this.setupCamps();
     this.setupUniques();
     this.setupNpcs();
+    this.quests = new Quests(this);
     this.targetRing = this.makeTargetRing();
     this.moveMarker = this.makeMoveMarker();
     this.ui.bind(this);
@@ -46,6 +51,7 @@ export class Game {
   }
   spawnEnemy(type, lv, at, unique) {
     const e = new Enemy(this, type, lv, at, unique);
+    e.id = EID++; e.awake = true;
     this.enemies.push(e); this.ui.addPlate(e);
     return e;
   }
@@ -66,12 +72,13 @@ export class Game {
       const ch = makeCharacter(model, { hideMeshes: hide });
       const an = new Animator(ch); an.loop(role === 'smith' ? 'Idle' : 'Idle');
       ch.root.position.set(x, heightAt(x, z), z); ch.root.rotation.y = yaw; this.scene.add(ch.root);
-      const ring = this.fx.glow(role === 'smith' ? 0xffb24a : 0x6ad1ff, 2.2); ring.position.set(x, heightAt(x, z) + 3.2, z); this.scene.add(ring);
+      const ring = this.fx.glow(role === 'smith' ? 0xffb24a : role === 'quest' ? 0xffe08a : 0x6ad1ff, 2.2); ring.position.set(x, heightAt(x, z) + 3.2, z); this.scene.add(ring);
       const npc = { ch, an, pos: new THREE.Vector3(x, heightAt(x, z), z), name, role, ring };
       this.npcs.push(npc); this.ui.addNpcPlate(npc);
     };
     mk('knight', 7.5, 57.3, 0, 'Demirci Haldun', 'smith', ['Badge_Shield']);
     mk('mage', -7.5, 55.2, 0, 'Tüccar Zerrin', 'merchant', []);
+    mk('rogue', GIVER.pos[0], GIVER.pos[1], 0, GIVER.name, 'quest', []);
   }
   makeTargetRing() {
     const m = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 40), new THREE.MeshBasicMaterial({ color: 0xff4a4a, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide }));
@@ -149,6 +156,7 @@ export class Game {
     const p = this.player;
     if (e.camp) { e.camp.alive = e.camp.alive.filter((x) => x !== e); e.camp.respawnQ.push(14 + Math.random() * 8); }
     if (killer !== p) return;
+    this.quests.onKill(e);
     const diff = THREE.MathUtils.clamp(1 + (e.level - p.level) * 0.15, 0.15, 1.6);
     let xp = Math.round(14 * Math.pow(e.level, 1.25) * e.T.xp * diff * (e.unique ? e.unique.xpMul : 1) * (e.summoned ? 0.3 : 1));
     this.gainXp(xp, e.pos);
@@ -186,6 +194,10 @@ export class Game {
       mesh = cloneProp(data.rarity >= 2 ? 'chest_gold' : 'chest', 0.42);
       beam = this.fx.lootBeam(pos, color);
       if (data.rarity >= 1) sfx.rare();
+    } else if (kind === 'quest') {
+      color = 0x7dff9a;
+      mesh = data.icon === 'staff' ? cloneWeapon('sk_staff', 0.55) : cloneProp('bone_A', 1.1);
+      beam = this.fx.lootBeam(pos, color);
     } else {
       color = data === 'hp' ? 0xff4a5a : 0x4aa8ff;
       mesh = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.8 }));
@@ -201,14 +213,19 @@ export class Game {
     const s = this.save, p = this.player;
     if (l.kind === 'gold') { s.gold += l.data; sfx.coin(); this.fx.number(p.pos, `+${l.data} altın`, 'gold'); }
     else if (l.kind === 'potion') { s.potions[l.data] = (s.potions[l.data] || 0) + 1; sfx.pickup(); this.ui.toast(l.data === 'hp' ? '🧪 Can İksiri' : '💧 Mana İksiri', l.data === 'hp' ? '#ff8a96' : '#8ac8ff'); }
+    else if (l.kind === 'quest') { sfx.pickup(); this.quests.onQuestItem(l.data); }
     else {
       if (s.bag.length >= 24) { this.ui.toast('Çanta dolu!', '#ff6a6a'); return false; }
-      const it = l.data; sfx.pickup();
-      if (!s.equip[it.slot]) { s.equip[it.slot] = it; p.recalc(); p.updateWeaponLook(); this.ui.toast(`Kuşanıldı: ${it.name}`, RARITY[it.rarity].color); }
-      else { s.bag.push(it); this.ui.toast(`${RARITY[it.rarity].name}: ${it.name}`, RARITY[it.rarity].color); }
-      this.ui.refreshInventory();
+      sfx.pickup(); this.giveItem(l.data);
     }
     return true;
+  }
+  giveItem(it) {
+    const s = this.save, p = this.player;
+    if (!s.equip[it.slot]) { s.equip[it.slot] = it; p.recalc(); p.updateWeaponLook(); this.ui.toast(`Kuşanıldı: ${it.name}`, RARITY[it.rarity].color); }
+    else if (s.bag.length < 24) { s.bag.push(it); this.ui.toast(`${RARITY[it.rarity].name}: ${it.name}`, RARITY[it.rarity].color); }
+    else { s.gold += 50; this.ui.toast('Çanta dolu, eşya yerine 50 altın aldın', '#ff8a6a'); }
+    this.ui.refreshInventory();
   }
 
   gainXp(xp, at) {
@@ -247,12 +264,19 @@ export class Game {
     const p = this.player; if (p.dead) return;
     const ndc = new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
-    const boxes = this.enemies.filter((e) => e.alive).map((e) => e.hitbox);
+    const boxes = this.enemies.filter((e) => e.alive && e.root.visible).map((e) => e.hitbox);
     const hit = this.raycaster.intersectObjects(boxes, false)[0];
     if (hit) {
       const e = hit.object.userData.enemy;
       p.target = e; p.autoAttack = true; p.moveTarget = null; sfx.ui();
       return;
+    }
+    // Quest collectible tap
+    for (const n of this.quests.nodes) {
+      if (!n.alive || !n.mesh.visible) continue;
+      TMP.copy(n.pos); TMP.y += 0.5; TMP.project(this.camera);
+      const sx = (TMP.x * 0.5 + 0.5) * innerWidth, sy = (-TMP.y * 0.5 + 0.5) * innerHeight;
+      if (Math.hypot(sx - x, sy - y) < 45) { this.quests.startCollect(n); return; }
     }
     // NPC tap
     for (const n of this.npcs) {
@@ -288,9 +312,13 @@ export class Game {
     const move = TMP.set(mv.x, 0, mv.y);
     p.update(dt, { move: move.clone() });
 
-    for (const e of this.enemies) e.update(dt);
+    this.updateEnemies(dt);
     for (let i = this.enemies.length - 1; i >= 0; i--) if (this.enemies[i].remove) { this.ui.removePlate(this.enemies[i]); this.enemies[i].dispose(); this.enemies.splice(i, 1); }
-    for (const n of this.npcs) { n.an.update(dt); const d = dist2d(n.pos, p.pos); if (d < 6) n.ch.root.rotation.y = Math.atan2(p.pos.x - n.pos.x, p.pos.z - n.pos.z); }
+    for (const n of this.npcs) {
+      const d = dist2d(n.pos, p.pos); n.ch.root.visible = d < 45;
+      if (d < 45) n.an.update(dt);
+      if (d < 6) n.ch.root.rotation.y = Math.atan2(p.pos.x - n.pos.x, p.pos.z - n.pos.z);
+    }
 
     // camps respawn
     for (const c of this.camps) {
@@ -307,11 +335,12 @@ export class Game {
 
     this.updateProjectiles(dt);
     this.updateLoot(dt);
+    this.quests.update(dt);
 
     // zone banner
     const zn = zoneAt(p.pos.z);
     if (zn !== this.zone) { this.zone = zn; this.ui.zone(zn); this.scene.fog.color.set(zn.fog); }
-    this.scene.fog.color.lerp(new THREE.Color(this.zone.fog), dt);
+    this.scene.fog.color.lerp(FOGC.set(this.zone.fog), dt);
 
     // target ring
     if (p.target && p.target.alive) {
@@ -332,6 +361,25 @@ export class Game {
 
     this.saveT += rawDt;
     if (this.saveT > 8) { this.saveT = 0; saveGame(this.save, p); }
+  }
+
+  // Only enemies near the player think; only on-screen ones animate and render.
+  updateEnemies(dt) {
+    const p = this.player, cam = this.camera;
+    this.frame = (this.frame || 0) + 1;
+    cam.updateMatrixWorld();
+    PM.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse); FRUSTUM.setFromProjectionMatrix(PM);
+    for (const e of this.enemies) {
+      const d = dist2d(e.pos, p.pos);
+      const busy = !e.alive || e.state === 'chase' || e.state === 'cast' || e.state === 'return';
+      e.awake = busy || d < 36;
+      if (!e.awake) { if (e.root.visible) e.root.visible = false; continue; }
+      SPH.center.set(e.pos.x, e.pos.y + 1.2 * e.scale, e.pos.z); SPH.radius = 2 * e.scale;
+      const onScreen = d < 60 && FRUSTUM.intersectsSphere(SPH);
+      if (e.root.visible !== onScreen) e.root.visible = onScreen;
+      e.animate = onScreen && (d < 20 || e.isBoss || (this.frame + e.id) % 2 === 0);
+      e.update(dt);
+    }
   }
 
   updateProjectiles(dt) {

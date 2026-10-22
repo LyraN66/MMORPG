@@ -4,7 +4,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { clone as skClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 const BASE = import.meta.env.BASE_URL + 'assets/';
-const FILES = ['anims', 'knight', 'mage', 'skel_minion', 'skel_warrior', 'skel_rogue', 'skel_mage', 'props', 'weapons'];
+const FILES = ['anims', 'knight', 'mage', 'rogue', 'skel_minion', 'skel_warrior', 'skel_rogue', 'skel_mage', 'props', 'weapons'];
 
 export const A = { gltf: {}, clips: {}, props: {}, weapons: {} };
 
@@ -93,17 +93,21 @@ export class Animator {
     this.lock = hold ? Infinity : (lockFor ?? dur * 0.92);
     return dur;
   }
-  update(dt) { if (this.lock !== Infinity) this.lock = Math.max(0, this.lock - dt); this.ch.mixer.update(dt); }
+  // mixDt lets callers skip skinning work for off-screen characters while game timing (lock) still advances.
+  update(dt, mixDt = dt) { if (this.lock !== Infinity) this.lock = Math.max(0, this.lock - dt); if (mixDt > 0) this.ch.mixer.update(mixDt); }
   unlock() { this.lock = 0; }
 }
 
 // Build InstancedMeshes for repeated static props. placements: [{name, x, y, z, ry, s}]
 export function buildInstancedProps(placements) {
   const group = new THREE.Group();
+  // Split each prop type into world bands so the camera and shadow frustums can cull distant chunks.
   const byName = {};
-  for (const p of placements) (byName[p.name] ||= []).push(p);
+  const BAND = 24;
+  for (const p of placements) (byName[p.name + '|' + Math.floor(p.z / BAND)] ||= []).push(p);
   const tmp = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
-  for (const [name, list] of Object.entries(byName)) {
+  for (const [key, list] of Object.entries(byName)) {
+    const name = key.split('|')[0];
     const src = A.props[name];
     if (!src) { console.warn('prop missing', name); continue; }
     src.parent.updateMatrixWorld(true);
@@ -113,6 +117,7 @@ export function buildInstancedProps(placements) {
       if (!m.isMesh) return;
       const local = new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld);
       const im = new THREE.InstancedMesh(m.geometry, m.material, list.length);
+      im.name = name;
       list.forEach((p, i) => {
         e.set(0, p.ry || 0, 0); q.setFromEuler(e);
         tmp.compose(new THREE.Vector3(p.x, p.y || 0, p.z), q, new THREE.Vector3(p.s || 1, p.s || 1, p.s || 1));
@@ -121,6 +126,7 @@ export function buildInstancedProps(placements) {
       });
       im.castShadow = !list[0].noShadow; im.receiveShadow = true;
       im.computeBoundingSphere();
+      im.userData.zc = (Number(key.split('|')[1]) + 0.5) * BAND;
       group.add(im);
     });
   }
