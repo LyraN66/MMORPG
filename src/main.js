@@ -320,9 +320,6 @@ function calibrate(raw) {
   calib.t += raw; calib.n++;
   if (calib.t > 6) { if (calib.n / calib.t < 48) cap = 30; calib = null; }
 }
-// Shadows are redrawn every other frame on phones (they barely move between frames).
-if (quality !== 'high') renderer.shadowMap.autoUpdate = false;
-let frameN = 0;
 const menuOpen = () => !game || document.querySelector('.modal:not(.hidden)') || !document.querySelector('#netlost').classList.contains('hidden');
 function loop(now) {
   requestAnimationFrame(loop);
@@ -330,7 +327,6 @@ function loop(now) {
   const c = menuOpen() && coarse ? Math.min(cap || 30, 30) : cap;
   if (c && now - lastFrame < 1000 / c - 4) return;
   lastFrame = now;
-  if (quality !== 'high' && (frameN++ & 1) === 0) renderer.shadowMap.needsUpdate = true;
   const raw = clock.getDelta();
   const dt = Math.min(raw, 0.1);
   renderer.info.reset();

@@ -325,8 +325,11 @@ export class World {
     const zn = this.vis.motes[playerPos.z < -32 ? 2 : playerPos.z < 10 ? 1 : 0];
     this.moteUniforms.uColor.value.lerp(new THREE.Color(zn), dt * 0.8);
     if (this.occl && this.cam) { this.occl.uCam.value.copy(this.cam.position); this.occl.uPl.value.set(playerPos.x, playerPos.y + 1.2, playerPos.z); }
-    this.sun.position.set(playerPos.x - 25, 45, playerPos.z + 18);
-    this.sun.target.position.copy(playerPos);
+    // Move the shadow area in whole shadow-map texels so shadows don't shimmer while walking.
+    const sc = this.sun.shadow.camera, tex = (sc.right - sc.left) / this.sun.shadow.mapSize.x;
+    const sx = Math.round(playerPos.x / tex) * tex, sz = Math.round(playerPos.z / tex) * tex, sy = Math.round(playerPos.y / tex) * tex;
+    this.sun.position.set(sx - 25, sy + 45, sz + 18);
+    this.sun.target.position.set(sx, sy, sz);
     this.sky.position.copy(playerPos); this.stars.position.copy(playerPos);
     this.cullT = (this.cullT || 0) - dt;
     if (this.cullT <= 0) {
