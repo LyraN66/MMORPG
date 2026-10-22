@@ -1,5 +1,8 @@
 apply plugin: 'com.android.application'
 
+// CI passes the run number so every APK installs over the previous one.
+def ciVersionCode = Integer.parseInt(System.getenv('VERSION_CODE') ?: '1')
+
 android {
     namespace "com.lyran66.kemikvadisi"
     compileSdk rootProject.ext.compileSdkVersion
@@ -8,8 +11,8 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // CI passes the run number so every APK installs over the previous one.
-        versionCode (System.getenv("VERSION_CODE") ?: "1").toInteger()
-        versionName "0.1." + (System.getenv("VERSION_CODE") ?: "0")
+        versionCode ciVersionCode
+        versionName "0.1." + ciVersionCode
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
