@@ -1,5 +1,5 @@
 // WebSocket connection to the co-op relay server.
-export const DEFAULT_SERVER = 'wss://kemik-vadisi.onrender.com';
+export const DEFAULT_SERVER = 'wss://mmorpg-1rq2.onrender.com';
 
 export function serverUrl() {
   let u = DEFAULT_SERVER;
